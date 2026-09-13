@@ -85,20 +85,30 @@ public sealed class MlsClient : IAsyncDisposable
         return groupHash;
     }
 
-    /// <summary>Add members to a group by their key packages. Returns welcome bytes.</summary>
+    /// <summary>Add members to a group by their key packages. Returns welcome bytes.
+    /// Wire format: [count:4][len1:4][kp1..][len2:4][kp2..]...</summary>
     public unsafe byte[] AddMembers(string groupHash, byte[][] keyPackages)
     {
         if (!_groups.TryGetValue(groupHash, out var group))
             throw new KeyNotFoundException($"Group {groupHash} not found");
 
-        // Concatenate all key packages
-        var allKp = keyPackages.SelectMany(kp => kp).ToArray();
+        // Serialize: count(4 LE) + [len(4 LE) + kp_bytes] for each
+        using var ms = new MemoryStream();
+        var countBytes = BitConverter.GetBytes((uint)keyPackages.Length);
+        ms.Write(countBytes, 0, 4);
+        foreach (var kp in keyPackages)
+        {
+            var lenBytes = BitConverter.GetBytes((uint)kp.Length);
+            ms.Write(lenBytes, 0, 4);
+            ms.Write(kp, 0, kp.Length);
+        }
+        var allData = ms.ToArray();
 
         NativeMethods.NapMlsBytes welcome = default;
-        fixed (byte* pKp = allKp)
+        fixed (byte* pKp = allData)
         {
             var rc = NativeMethods.napmls_add_members(
-                _provider, group, _identity, pKp, allKp.Length, &welcome, null);
+                _provider, group, _identity, pKp, allData.Length, &welcome, null);
             if (rc != NativeMethods.NAPMLS_OK)
                 throw new InvalidOperationException($"Failed to add members: {rc}");
         }

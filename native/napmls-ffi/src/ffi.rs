@@ -378,7 +378,8 @@ pub extern "C" fn napmls_generate_key_package(
     }
 }
 
-/// Add a member to the group. The key_package_data is a serialized KeyPackage.
+/// Add members to the group. The key_package_data contains multiple KeyPackages
+/// in a length-prefixed format: [count:4][len1:4][kp1..][len2:4][kp2..]...
 /// Internally performs add_members + merge_pending_commit.
 /// On success, the welcome message is written to `out_welcome`.
 #[no_mangle]
@@ -401,23 +402,57 @@ pub extern "C" fn napmls_add_members(
         let group = unsafe { &mut *group };
         let identity = unsafe { &*identity };
 
-        let kp_bytes = unsafe { std::slice::from_raw_parts(key_package_data, key_package_len) };
-        let key_package_in = KeyPackageIn::tls_deserialize(&mut &kp_bytes[..] as &mut &[u8])
-            .map_err(|e| {
-                eprintln!("KeyPackage deserialization failed: {:?}", e);
-                NAPMLS_ERR_DESERIALIZATION
-            })?;
+        let all_bytes = unsafe { std::slice::from_raw_parts(key_package_data, key_package_len) };
+        let mut cursor = &all_bytes[..];
 
-        let key_package = key_package_in.validate(provider.crypto(), ProtocolVersion::Mls10)
-            .map_err(|e| {
-                eprintln!("KeyPackage validation failed: {:?}", e);
-                NAPMLS_ERR_DESERIALIZATION
-            })?;
+        // Read count of key packages (4 bytes LE)
+        if cursor.len() < 4 {
+            eprintln!("add_members: not enough data for count");
+            return Err(NAPMLS_ERR_DESERIALIZATION);
+        }
+        let count = u32::from_le_bytes([cursor[0], cursor[1], cursor[2], cursor[3]]) as usize;
+        cursor = &cursor[4..];
+
+        if count == 0 {
+            eprintln!("add_members: zero key packages");
+            return Err(NAPMLS_ERR_DESERIALIZATION);
+        }
+
+        let mut key_packages = Vec::with_capacity(count);
+        for i in 0..count {
+            if cursor.len() < 4 {
+                eprintln!("add_members: not enough data for kp[{}] length", i);
+                return Err(NAPMLS_ERR_DESERIALIZATION);
+            }
+            let kp_len = u32::from_le_bytes([cursor[0], cursor[1], cursor[2], cursor[3]]) as usize;
+            cursor = &cursor[4..];
+
+            if cursor.len() < kp_len {
+                eprintln!("add_members: not enough data for kp[{}] (need {} bytes)", i, kp_len);
+                return Err(NAPMLS_ERR_DESERIALIZATION);
+            }
+            let kp_data = &cursor[..kp_len];
+            cursor = &cursor[kp_len..];
+
+            let key_package_in = KeyPackageIn::tls_deserialize(&mut &kp_data[..] as &mut &[u8])
+                .map_err(|e| {
+                    eprintln!("KeyPackage[{}] deserialization failed: {:?}", i, e);
+                    NAPMLS_ERR_DESERIALIZATION
+                })?;
+
+            let key_package = key_package_in.validate(provider.crypto(), ProtocolVersion::Mls10)
+                .map_err(|e| {
+                    eprintln!("KeyPackage[{}] validation failed: {:?}", i, e);
+                    NAPMLS_ERR_DESERIALIZATION
+                })?;
+
+            key_packages.push(key_package);
+        }
 
         let (_commit, welcome_msg, _group_info) = group.group.add_members(
             provider,
             &identity.signature_keys,
-            &[key_package],
+            &key_packages,
         )
         .map_err(|e| {
             eprintln!("add_members failed: {:?}", e);
