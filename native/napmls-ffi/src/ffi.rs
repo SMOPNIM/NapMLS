@@ -16,12 +16,53 @@ use std::ffi::CString;
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use openmls::prelude::*;
 use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::RustCrypto;
 use openmls_sqlite_storage::SqliteStorageProvider;
+
+// ===== Allocation Tracking =====
+
+pub static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static FREE_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static BYTES_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
+pub static BYTES_FREED: AtomicUsize = AtomicUsize::new(0);
+
+fn track_alloc(size: usize) {
+    ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+    BYTES_ALLOCATED.fetch_add(size, Ordering::Relaxed);
+}
+
+fn track_free(size: usize) {
+    FREE_COUNT.fetch_add(1, Ordering::Relaxed);
+    BYTES_FREED.fetch_add(size, Ordering::Relaxed);
+}
+
+/// Reset all counters to zero.
+#[no_mangle]
+pub extern "C" fn napmls_reset_counters() {
+    ALLOC_COUNT.store(0, Ordering::Relaxed);
+    FREE_COUNT.store(0, Ordering::Relaxed);
+    BYTES_ALLOCATED.store(0, Ordering::Relaxed);
+    BYTES_FREED.store(0, Ordering::Relaxed);
+}
+
+/// Get current allocation stats: (alloc_count, free_count, bytes_allocated, bytes_freed).
+#[no_mangle]
+pub extern "C" fn napmls_get_alloc_stats(
+    out_alloc_count: *mut usize,
+    out_free_count: *mut usize,
+    out_bytes_allocated: *mut usize,
+    out_bytes_freed: *mut usize,
+) {
+    if !out_alloc_count.is_null() { unsafe { *out_alloc_count = ALLOC_COUNT.load(Ordering::Relaxed); } }
+    if !out_free_count.is_null() { unsafe { *out_free_count = FREE_COUNT.load(Ordering::Relaxed); } }
+    if !out_bytes_allocated.is_null() { unsafe { *out_bytes_allocated = BYTES_ALLOCATED.load(Ordering::Relaxed); } }
+    if !out_bytes_freed.is_null() { unsafe { *out_bytes_freed = BYTES_FREED.load(Ordering::Relaxed); } }
+}
 
 use crate::encrypted_storage::{EncryptedCodec, try_init_encryption_key};
 
@@ -103,6 +144,8 @@ unsafe fn write_error(out_error: *mut NapMlsError, code: i32, msg: &str) {
         return;
     }
     let c_msg = CString::new(msg).unwrap_or_else(|_| CString::new("error message contains null byte").unwrap());
+    let msg_len = c_msg.as_bytes().len() + 1; // +1 for null terminator
+    track_alloc(msg_len);
     (*out_error).code = code;
     (*out_error).message = c_msg.into_raw();
 }
@@ -113,6 +156,7 @@ unsafe fn write_bytes(out: *mut NapMlsBytes, data: Vec<u8>) {
         return;
     }
     let len = data.len();
+    track_alloc(len);
     let ptr = Box::into_raw(data.into_boxed_slice()) as *mut u8;
     (*out).ptr = ptr;
     (*out).len = len;
@@ -149,7 +193,9 @@ pub extern "C" fn napmls_init(encryption_key: *const u8, key_len: usize) -> i32 
 #[no_mangle]
 pub extern "C" fn napmls_provider_new(out_error: *mut NapMlsError) -> *mut NapMlsProvider {
     let result = ffi_catch(AssertUnwindSafe(|| {
-        Ok(Box::into_raw(Box::new(NapMlsProvider::new())))
+        let handle = Box::into_raw(Box::new(NapMlsProvider::new()));
+        track_alloc(std::mem::size_of::<NapMlsProvider>());
+        Ok(handle)
     }));
     match result {
         Ok(ptr) => ptr,
@@ -164,6 +210,7 @@ pub extern "C" fn napmls_provider_new(out_error: *mut NapMlsError) -> *mut NapMl
 #[no_mangle]
 pub extern "C" fn napmls_provider_free(provider: *mut NapMlsProvider) {
     if !provider.is_null() {
+        track_free(std::mem::size_of::<NapMlsProvider>());
         unsafe { drop(Box::from_raw(provider)); }
     }
 }
@@ -201,6 +248,7 @@ pub extern "C" fn napmls_create_identity(
             signature_keys,
             credential_with_key,
         });
+        track_alloc(std::mem::size_of::<NapMlsIdentityHandle>());
         unsafe { *out_identity = Box::into_raw(handle); }
         Ok(NAPMLS_OK)
     }));
@@ -218,6 +266,7 @@ pub extern "C" fn napmls_create_identity(
 #[no_mangle]
 pub extern "C" fn napmls_identity_free(identity: *mut NapMlsIdentityHandle) {
     if !identity.is_null() {
+        track_free(std::mem::size_of::<NapMlsIdentityHandle>());
         unsafe { drop(Box::from_raw(identity)); }
     }
 }
@@ -260,6 +309,7 @@ pub extern "C" fn napmls_create_group(
             .build();
 
         let handle = Box::new(NapMlsGroupHandle { group, join_config });
+        track_alloc(std::mem::size_of::<NapMlsGroupHandle>());
         unsafe { *out_group = Box::into_raw(handle); }
         Ok(NAPMLS_OK)
     }));
@@ -277,6 +327,7 @@ pub extern "C" fn napmls_create_group(
 #[no_mangle]
 pub extern "C" fn napmls_group_free(group: *mut NapMlsGroupHandle) {
     if !group.is_null() {
+        track_free(std::mem::size_of::<NapMlsGroupHandle>());
         unsafe { drop(Box::from_raw(group)); }
     }
 }
@@ -457,6 +508,7 @@ pub extern "C" fn napmls_process_welcome(
             })?;
 
         let handle = Box::new(NapMlsGroupHandle { group: mls_group, join_config });
+        track_alloc(std::mem::size_of::<NapMlsGroupHandle>());
         unsafe { *out_group = Box::into_raw(handle); }
         Ok(NAPMLS_OK)
     }));
@@ -829,6 +881,7 @@ pub extern "C" fn napmls_group_members(
 #[no_mangle]
 pub extern "C" fn napmls_free_bytes(bytes: NapMlsBytes) {
     if !bytes.ptr.is_null() && bytes.len > 0 {
+        track_free(bytes.len);
         unsafe {
             drop(Box::from_raw(std::slice::from_raw_parts_mut(bytes.ptr, bytes.len)));
         }
@@ -842,7 +895,10 @@ pub extern "C" fn napmls_free_bytes(bytes: NapMlsBytes) {
 pub extern "C" fn napmls_free_error(error: NapMlsError) {
     if !error.message.is_null() {
         unsafe {
-            drop(CString::from_raw(error.message));
+            let msg = CString::from_raw(error.message);
+            let msg_len = msg.as_bytes().len() + 1;
+            track_free(msg_len);
+            drop(msg);
         }
     }
 }

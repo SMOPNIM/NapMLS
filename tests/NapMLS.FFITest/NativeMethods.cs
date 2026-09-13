@@ -179,4 +179,14 @@ internal static partial class NativeMethods
 
     [LibraryImport(LibName)]
     public static partial void napmls_free_error(NapMlsError error);
+
+    [LibraryImport(LibName)]
+    public static partial void napmls_reset_counters();
+
+    [LibraryImport(LibName)]
+    public static unsafe partial void napmls_get_alloc_stats(
+        nuint* outAllocCount,
+        nuint* outFreeCount,
+        nuint* outBytesAllocated,
+        nuint* outBytesFreed);
 }
