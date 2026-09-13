@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace NapMLS.FFITest;
 
 /// <summary>
@@ -14,10 +12,13 @@ internal sealed class MlsProvider : IDisposable
 
     public MlsProvider()
     {
-        NativeMethods.NapMlsError err = default;
-        Handle = NativeMethods.napmls_provider_new(&err);
-        if (Handle == IntPtr.Zero)
-            throw new InvalidOperationException($"Failed to create provider: {NativeMethods.GetErrorMessage(err)}");
+        unsafe
+        {
+            NativeMethods.NapMlsError err = default;
+            Handle = NativeMethods.napmls_provider_new(&err);
+            if (Handle == IntPtr.Zero)
+                throw new InvalidOperationException($"Failed to create provider: {NativeMethods.GetErrorMessage(err)}");
+        }
     }
 
     public void Dispose()

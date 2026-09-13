@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 
 namespace NapMLS.FFITest;
 
@@ -22,12 +21,15 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public static MlsGroup Create(MlsProvider provider, MlsIdentity identity)
     {
-        NativeMethods.NapMlsError err = default;
-        IntPtr groupHandle;
-        var rc = NativeMethods.napmls_create_group(provider.Handle, identity.Handle, &groupHandle, &err);
-        if (rc != 0)
-            throw new InvalidOperationException($"Failed to create group: {NativeMethods.GetErrorMessage(err)}");
-        return new MlsGroup(groupHandle);
+        unsafe
+        {
+            NativeMethods.NapMlsError err = default;
+            IntPtr groupHandle;
+            var rc = NativeMethods.napmls_create_group(provider.Handle, identity.Handle, &groupHandle, &err);
+            if (rc != 0)
+                throw new InvalidOperationException($"Failed to create group: {NativeMethods.GetErrorMessage(err)}");
+            return new MlsGroup(groupHandle);
+        }
     }
 
     /// <summary>
@@ -36,23 +38,26 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public byte[] AddMember(MlsProvider provider, MlsIdentity identity, byte[] keyPackageBytes)
     {
-        NativeMethods.NapMlsError err = default;
-        NativeMethods.NapMlsBytes welcome = default;
-        fixed (byte* pKp = keyPackageBytes)
+        unsafe
         {
-            var rc = NativeMethods.napmls_add_members(
-                provider.Handle, Handle, identity.Handle,
-                pKp, keyPackageBytes.Length, &welcome, &err);
-            if (rc != 0)
-                throw new InvalidOperationException($"Failed to add member: {NativeMethods.GetErrorMessage(err)}");
-        }
-        try
-        {
-            return NativeMethods.ReadBytes(welcome);
-        }
-        finally
-        {
-            NativeMethods.FreeBytes(ref welcome);
+            NativeMethods.NapMlsError err = default;
+            NativeMethods.NapMlsBytes welcome = default;
+            fixed (byte* pKp = keyPackageBytes)
+            {
+                var rc = NativeMethods.napmls_add_members(
+                    provider.Handle, Handle, identity.Handle,
+                    pKp, keyPackageBytes.Length, &welcome, &err);
+                if (rc != 0)
+                    throw new InvalidOperationException($"Failed to add member: {NativeMethods.GetErrorMessage(err)}");
+            }
+            try
+            {
+                return NativeMethods.ReadBytes(welcome);
+            }
+            finally
+            {
+                NativeMethods.FreeBytes(ref welcome);
+            }
         }
     }
 
@@ -62,11 +67,14 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public void RemoveMember(MlsProvider provider, MlsIdentity identity, uint leafIndex)
     {
-        NativeMethods.NapMlsError err = default;
-        var rc = NativeMethods.napmls_remove_members(
-            provider.Handle, Handle, identity.Handle, leafIndex, &err);
-        if (rc != 0)
-            throw new InvalidOperationException($"Failed to remove member: {NativeMethods.GetErrorMessage(err)}");
+        unsafe
+        {
+            NativeMethods.NapMlsError err = default;
+            var rc = NativeMethods.napmls_remove_members(
+                provider.Handle, Handle, identity.Handle, leafIndex, &err);
+            if (rc != 0)
+                throw new InvalidOperationException($"Failed to remove member: {NativeMethods.GetErrorMessage(err)}");
+        }
     }
 
     /// <summary>
@@ -74,18 +82,21 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public static byte[] GenerateKeyPackage(MlsProvider provider, MlsIdentity identity)
     {
-        NativeMethods.NapMlsError err = default;
-        NativeMethods.NapMlsBytes kp = default;
-        var rc = NativeMethods.napmls_generate_key_package(provider.Handle, identity.Handle, &kp, &err);
-        if (rc != 0)
-            throw new InvalidOperationException($"Failed to generate key package: {NativeMethods.GetErrorMessage(err)}");
-        try
+        unsafe
         {
-            return NativeMethods.ReadBytes(kp);
-        }
-        finally
-        {
-            NativeMethods.FreeBytes(ref kp);
+            NativeMethods.NapMlsError err = default;
+            NativeMethods.NapMlsBytes kp = default;
+            var rc = NativeMethods.napmls_generate_key_package(provider.Handle, identity.Handle, &kp, &err);
+            if (rc != 0)
+                throw new InvalidOperationException($"Failed to generate key package: {NativeMethods.GetErrorMessage(err)}");
+            try
+            {
+                return NativeMethods.ReadBytes(kp);
+            }
+            finally
+            {
+                NativeMethods.FreeBytes(ref kp);
+            }
         }
     }
 
@@ -94,16 +105,19 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public static MlsGroup JoinFromWelcome(MlsProvider provider, byte[] welcomeBytes)
     {
-        NativeMethods.NapMlsError err = default;
-        IntPtr groupHandle;
-        fixed (byte* pWelcome = welcomeBytes)
+        unsafe
         {
-            var rc = NativeMethods.napmls_process_welcome(
-                provider.Handle, pWelcome, welcomeBytes.Length, &groupHandle, &err);
-            if (rc != 0)
-                throw new InvalidOperationException($"Failed to process welcome: {NativeMethods.GetErrorMessage(err)}");
+            NativeMethods.NapMlsError err = default;
+            IntPtr groupHandle;
+            fixed (byte* pWelcome = welcomeBytes)
+            {
+                var rc = NativeMethods.napmls_process_welcome(
+                    provider.Handle, pWelcome, welcomeBytes.Length, &groupHandle, &err);
+                if (rc != 0)
+                    throw new InvalidOperationException($"Failed to process welcome: {NativeMethods.GetErrorMessage(err)}");
+            }
+            return new MlsGroup(groupHandle);
         }
-        return new MlsGroup(groupHandle);
     }
 
     /// <summary>
@@ -111,23 +125,26 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public byte[] Encrypt(MlsProvider provider, MlsIdentity identity, byte[] plaintext)
     {
-        NativeMethods.NapMlsError err = default;
-        NativeMethods.NapMlsBytes cipher = default;
-        fixed (byte* pPlain = plaintext)
+        unsafe
         {
-            var rc = NativeMethods.napmls_encrypt(
-                provider.Handle, Handle, identity.Handle,
-                pPlain, plaintext.Length, &cipher, &err);
-            if (rc != 0)
-                throw new InvalidOperationException($"Failed to encrypt: {NativeMethods.GetErrorMessage(err)}");
-        }
-        try
-        {
-            return NativeMethods.ReadBytes(cipher);
-        }
-        finally
-        {
-            NativeMethods.FreeBytes(ref cipher);
+            NativeMethods.NapMlsError err = default;
+            NativeMethods.NapMlsBytes cipher = default;
+            fixed (byte* pPlain = plaintext)
+            {
+                var rc = NativeMethods.napmls_encrypt(
+                    provider.Handle, Handle, identity.Handle,
+                    pPlain, plaintext.Length, &cipher, &err);
+                if (rc != 0)
+                    throw new InvalidOperationException($"Failed to encrypt: {NativeMethods.GetErrorMessage(err)}");
+            }
+            try
+            {
+                return NativeMethods.ReadBytes(cipher);
+            }
+            finally
+            {
+                NativeMethods.FreeBytes(ref cipher);
+            }
         }
     }
 
@@ -136,22 +153,25 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public byte[] Decrypt(MlsProvider provider, byte[] ciphertext)
     {
-        NativeMethods.NapMlsError err = default;
-        NativeMethods.NapMlsBytes plain = default;
-        fixed (byte* pCipher = ciphertext)
+        unsafe
         {
-            var rc = NativeMethods.napmls_decrypt(
-                provider.Handle, Handle, pCipher, ciphertext.Length, &plain, &err);
-            if (rc != 0)
-                throw new MlsDecryptException(rc, NativeMethods.GetErrorMessage(err));
-        }
-        try
-        {
-            return NativeMethods.ReadBytes(plain);
-        }
-        finally
-        {
-            NativeMethods.FreeBytes(ref plain);
+            NativeMethods.NapMlsError err = default;
+            NativeMethods.NapMlsBytes plain = default;
+            fixed (byte* pCipher = ciphertext)
+            {
+                var rc = NativeMethods.napmls_decrypt(
+                    provider.Handle, Handle, pCipher, ciphertext.Length, &plain, &err);
+                if (rc != 0)
+                    throw new MlsDecryptException(rc, NativeMethods.GetErrorMessage(err));
+            }
+            try
+            {
+                return NativeMethods.ReadBytes(plain);
+            }
+            finally
+            {
+                NativeMethods.FreeBytes(ref plain);
+            }
         }
     }
 
@@ -160,12 +180,15 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public ulong GetEpoch()
     {
-        NativeMethods.NapMlsError err = default;
-        ulong epoch;
-        var rc = NativeMethods.napmls_group_epoch(Handle, &epoch, &err);
-        if (rc != 0)
-            throw new InvalidOperationException($"Failed to get epoch: {NativeMethods.GetErrorMessage(err)}");
-        return epoch;
+        unsafe
+        {
+            NativeMethods.NapMlsError err = default;
+            ulong epoch;
+            var rc = NativeMethods.napmls_group_epoch(Handle, &epoch, &err);
+            if (rc != 0)
+                throw new InvalidOperationException($"Failed to get epoch: {NativeMethods.GetErrorMessage(err)}");
+            return epoch;
+        }
     }
 
     /// <summary>
@@ -173,12 +196,15 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public uint GetMemberCount()
     {
-        NativeMethods.NapMlsError err = default;
-        uint count;
-        var rc = NativeMethods.napmls_group_member_count(Handle, &count, &err);
-        if (rc != 0)
-            throw new InvalidOperationException($"Failed to get member count: {NativeMethods.GetErrorMessage(err)}");
-        return count;
+        unsafe
+        {
+            NativeMethods.NapMlsError err = default;
+            uint count;
+            var rc = NativeMethods.napmls_group_member_count(Handle, &count, &err);
+            if (rc != 0)
+                throw new InvalidOperationException($"Failed to get member count: {NativeMethods.GetErrorMessage(err)}");
+            return count;
+        }
     }
 
     /// <summary>
@@ -186,18 +212,21 @@ internal sealed class MlsGroup : IDisposable
     /// </summary>
     public string GetMembersJson()
     {
-        NativeMethods.NapMlsError err = default;
-        NativeMethods.NapMlsBytes members = default;
-        var rc = NativeMethods.napmls_group_members(Handle, &members, &err);
-        if (rc != 0)
-            throw new InvalidOperationException($"Failed to get members: {NativeMethods.GetErrorMessage(err)}");
-        try
+        unsafe
         {
-            return Encoding.UTF8.GetString(NativeMethods.ReadBytes(members));
-        }
-        finally
-        {
-            NativeMethods.FreeBytes(ref members);
+            NativeMethods.NapMlsError err = default;
+            NativeMethods.NapMlsBytes members = default;
+            var rc = NativeMethods.napmls_group_members(Handle, &members, &err);
+            if (rc != 0)
+                throw new InvalidOperationException($"Failed to get members: {NativeMethods.GetErrorMessage(err)}");
+            try
+            {
+                return Encoding.UTF8.GetString(NativeMethods.ReadBytes(members));
+            }
+            finally
+            {
+                NativeMethods.FreeBytes(ref members);
+            }
         }
     }
 
@@ -207,16 +236,19 @@ internal sealed class MlsGroup : IDisposable
     public uint FindMemberByName(string name)
     {
         var nameBytes = Encoding.UTF8.GetBytes(name);
-        NativeMethods.NapMlsError err = default;
-        uint leafIndex;
-        fixed (byte* pName = nameBytes)
+        unsafe
         {
-            var rc = NativeMethods.napmls_find_member_by_name(
-                Handle, pName, nameBytes.Length, &leafIndex, &err);
-            if (rc != 0)
-                throw new InvalidOperationException($"Member '{name}' not found");
+            fixed (byte* pName = nameBytes)
+            {
+                NativeMethods.NapMlsError err = default;
+                uint leafIndex;
+                var rc = NativeMethods.napmls_find_member_by_name(
+                    Handle, pName, nameBytes.Length, &leafIndex, &err);
+                if (rc != 0)
+                    throw new InvalidOperationException($"Member '{name}' not found");
+                return leafIndex;
+            }
         }
-        return leafIndex;
     }
 
     public void Dispose()

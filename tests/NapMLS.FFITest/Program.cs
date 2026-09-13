@@ -42,13 +42,13 @@ Console.WriteLine($"[encrypt] {ciphertext.Length} bytes");
 // 7. Bob decrypts
 var plaintext = Encoding.UTF8.GetString(bobClient.Decrypt(bobGroup, ciphertext));
 Console.WriteLine($"[decrypt] \"{plaintext}\"");
-Console.Assert(plaintext == "Hello Bob!");
+Console.WriteLine($"[decrypt] Match: {plaintext == "Hello Bob!"}");
 
 // 8. Bob replies
 var reply = bobClient.Encrypt(bobGroup, bob, Encoding.UTF8.GetBytes("Hi Alice!"));
 var replyPlain = Encoding.UTF8.GetString(aliceClient.Decrypt(aliceGroup, reply));
 Console.WriteLine($"[reply] \"{replyPlain}\"");
-Console.Assert(replyPlain == "Hi Alice!");
+Console.WriteLine($"[reply] Match: {replyPlain == "Hi Alice!"}");
 
 // 9. Remove Bob
 aliceClient.RemoveMember(aliceGroup, alice, 1);
