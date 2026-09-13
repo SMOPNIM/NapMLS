@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NapMLS.NapCat/NapMLS.NapCat.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/NapMLS.FFITest/NapMLS.FFITest.csproj" />
   </Folder>
