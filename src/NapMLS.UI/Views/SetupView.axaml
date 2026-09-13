@@ -11,44 +11,108 @@
                        FontSize="24" FontWeight="Bold"
                        HorizontalAlignment="Center" />
 
-            <TextBlock Text="NapCat 连接配置"
-                       FontSize="18" FontWeight="SemiBold" Margin="0,16,0,0" />
+            <TextBlock Text="{Binding StepTitle}"
+                       FontSize="16" Foreground="Gray"
+                       HorizontalAlignment="Center" />
 
-            <StackPanel Spacing="8">
-                <TextBlock Text="WebSocket 地址" FontSize="14" />
-                <TextBox Text="{Binding NapCatHost}" FontSize="14" />
-            </StackPanel>
+            <!-- ===== Step 1: NapCat Config ===== -->
+            <StackPanel Spacing="12" IsVisible="{Binding IsStep1Visible}">
+                <TextBlock Text="NapCat 连接配置"
+                           FontSize="18" FontWeight="SemiBold" Margin="0,16,0,0" />
 
-            <StackPanel Spacing="8">
-                <TextBlock Text="端口" FontSize="14" />
-                <TextBox Text="{Binding NapCatPort}" FontSize="14" />
-            </StackPanel>
-
-            <StackPanel Spacing="8">
-                <TextBlock Text="Token（可选）" FontSize="14" />
-                <TextBox Text="{Binding NapCatToken}" FontSize="14" PlaceholderText="Bearer token" />
-            </StackPanel>
-
-            <TextBlock Text="身份信息"
-                       FontSize="18" FontWeight="SemiBold" Margin="0,16,0,0" />
-
-            <Border Background="#F3E5F5" CornerRadius="8" Padding="16"
-                    IsVisible="{Binding IsIdentityGenerated}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="安全码" FontSize="14" FontWeight="SemiBold" />
-                    <TextBlock Text="{Binding MySafetyCode}"
-                               FontSize="20" FontWeight="Bold"
-                               FontFamily="Consolas,monospace"
-                               HorizontalAlignment="Center" />
-                    <TextBlock Text="请将此安全码与对方进行比对验证"
-                               FontSize="12" Foreground="Gray"
-                               HorizontalAlignment="Center" />
+                <StackPanel Spacing="4">
+                    <TextBlock Text="WebSocket 地址" FontSize="14" />
+                    <TextBox Text="{Binding NapCatHost}" FontSize="14" />
                 </StackPanel>
-            </Border>
 
-            <TextBlock Text="{Binding StatusMessage}"
-                       FontSize="14" Foreground="Gray"
-                       HorizontalAlignment="Center" Margin="0,8" />
+                <StackPanel Spacing="4">
+                    <TextBlock Text="端口" FontSize="14" />
+                    <TextBox Text="{Binding NapCatPort}" FontSize="14" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Token（可选）" FontSize="14" />
+                    <TextBox Text="{Binding NapCatToken}" FontSize="14" PlaceholderText="Bearer token" />
+                </StackPanel>
+
+                <!-- Connection status -->
+                <Border CornerRadius="6" Padding="12,8"
+                        Background="#E8F5E9"
+                        IsVisible="{Binding IsConnected, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse Width="10" Height="10"
+                                 Fill="{Binding IsConnected, Converter={x:Static vm:BoolToBrushConverter.Instance}}" />
+                        <TextBlock Text="{Binding ConnectionStatus}" FontSize="13" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Error -->
+                <TextBlock Text="{Binding ErrorMessage}"
+                           FontSize="13" Foreground="Red"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                <!-- Actions -->
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,8">
+                    <Button Content="测试连接"
+                            Command="{Binding TestConnectionCommand}"
+                            MinWidth="100" Height="36"
+                            IsEnabled="{Binding !IsConnecting}" />
+                    <Button Content="下一步 →"
+                            Command="{Binding ProceedToStep2Command}"
+                            MinWidth="100" Height="36" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- ===== Step 2: Identity Generation ===== -->
+            <StackPanel Spacing="12" IsVisible="{Binding IsStep2Visible}">
+                <TextBlock Text="身份生成"
+                           FontSize="18" FontWeight="SemiBold" Margin="0,16,0,0" />
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="用户名" FontSize="14" />
+                    <TextBox Text="{Binding Username}" FontSize="14" PlaceholderText="输入你的昵称" />
+                </StackPanel>
+
+                <!-- Safety code display -->
+                <Border Background="#F3E5F5" CornerRadius="8" Padding="16"
+                        IsVisible="{Binding IsIdentityGenerated}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="安全码" FontSize="14" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding SafetyCode}"
+                                   FontSize="22" FontWeight="Bold"
+                                   FontFamily="Consolas,monospace"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="请将此安全码与对方进行比对验证"
+                                   FontSize="12" Foreground="Gray"
+                                   HorizontalAlignment="Center" />
+                        <Button Content="复制安全码"
+                                Command="{Binding CopySafetyCodeCommand}"
+                                HorizontalAlignment="Center"
+                                MinWidth="120" Height="32"
+                                Margin="0,4,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Error -->
+                <TextBlock Text="{Binding ErrorMessage}"
+                           FontSize="13" Foreground="Red"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                <!-- Actions -->
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,8">
+                    <Button Content="生成身份"
+                            Command="{Binding GenerateIdentityCommand}"
+                            MinWidth="100" Height="36"
+                            IsEnabled="{Binding !IsGenerating}"
+                            IsVisible="{Binding !IsIdentityGenerated}" />
+                    <Button Content="完成"
+                            Command="{Binding CompleteCommand}"
+                            MinWidth="100" Height="36"
+                            IsVisible="{Binding IsIdentityGenerated}" />
+                </StackPanel>
+            </StackPanel>
 
         </StackPanel>
     </ScrollViewer>

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NapMLS.UI.Models;
 
 namespace NapMLS.UI.ViewModels;
 
@@ -10,13 +11,24 @@ namespace NapMLS.UI.ViewModels;
 /// </summary>
 public partial class GroupListViewModel : ViewModelBase
 {
+    private readonly AppConfig _config;
+
     [ObservableProperty]
     public partial bool IsConnected { get; set; }
 
     [ObservableProperty]
     public partial string ConnectionStatus { get; set; } = "NapCat 未连接";
 
+    [ObservableProperty]
+    public partial string WelcomeText { get; set; }
+
     public ObservableCollection<GroupItemViewModel> Groups { get; } = [];
+
+    public GroupListViewModel(AppConfig config)
+    {
+        _config = config;
+        WelcomeText = $"欢迎, {config.IdentityUsername ?? "用户"}";
+    }
 
     [RelayCommand]
     private void CreateGroup()
