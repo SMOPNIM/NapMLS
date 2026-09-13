@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NapMLS.UI.ViewModels"
+             x:Class="NapMLS.UI.Views.RiskWarningView"
+             x:DataType="vm:RiskWarningViewModel">
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="16" MaxWidth="600" HorizontalAlignment="Center" Margin="32">
+
+            <TextBlock Text="⚠ 安全风险警告"
+                       FontSize="24" FontWeight="Bold"
+                       HorizontalAlignment="Center"
+                       Foreground="#E65100" />
+
+            <TextBlock Text="请仔细阅读以下内容后再继续"
+                       FontSize="14" HorizontalAlignment="Center"
+                       Foreground="Gray" />
+
+            <Border Background="#FFF3E0" CornerRadius="8" Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="1. NapCat 违反腾讯服务条款"
+                               FontSize="16" FontWeight="SemiBold" Foreground="#E65100" />
+                    <TextBlock Text="NapCat 是非官方 QQ 机器人框架，使用它可能违反腾讯服务条款，存在被封号的风险。"
+                               TextWrapping="Wrap" FontSize="14" />
+                    <TextBlock Text="建议使用小号，不要在主力账号上使用。"
+                               TextWrapping="Wrap" FontSize="14" FontWeight="SemiBold" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="#E8F5E9" CornerRadius="8" Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="2. 加密子群的工作方式"
+                               FontSize="16" FontWeight="SemiBold" Foreground="#2E7D32" />
+                    <TextBlock Text="MLS 加密子群的成员需要手动选择，不是 QQ 群的所有成员都会被加入。"
+                               TextWrapping="Wrap" FontSize="14" />
+                    <TextBlock Text="只有经过带外身份验证（安全码比对）的成员才能加入加密子群。"
+                               TextWrapping="Wrap" FontSize="14" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="#E3F2FD" CornerRadius="8" Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="3. 消息可见性"
+                               FontSize="16" FontWeight="SemiBold" Foreground="#1565C0" />
+                    <TextBlock Text="未加入加密子群的成员看到的消息是 [MLS:...] 格式的密文。"
+                               TextWrapping="Wrap" FontSize="14" />
+                    <TextBlock Text="加密子群内的消息对群外成员完全不可见。"
+                               TextWrapping="Wrap" FontSize="14" />
+                </StackPanel>
+            </Border>
+
+            <Button Content="我已了解风险，继续"
+                    Command="{Binding AcceptCommand}"
+                    HorizontalAlignment="Center"
+                    MinWidth="200" Height="48"
+                    FontSize="16" FontWeight="SemiBold"
+                    Margin="0,16,0,0" />
+
+        </StackPanel>
+    </ScrollViewer>
+
+</UserControl>

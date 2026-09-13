@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NapMLS.UI.ViewModels"
+             x:Class="NapMLS.UI.Views.ChatView"
+             x:DataType="vm:ChatViewModel">
+
+    <DockPanel>
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                Padding="16,12" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="{Binding GroupName}" FontSize="18" FontWeight="Bold"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Input bar -->
+        <Border DockPanel.Dock="Bottom" Padding="12,8"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                BorderThickness="0,1,0,0">
+            <DockPanel>
+                <Button Content="发送"
+                        Command="{Binding SendMessageCommand}"
+                        DockPanel.Dock="Right"
+                        MinWidth="80" Height="36"
+                        IsEnabled="{Binding !IsSending}"
+                        Margin="8,0,0,0" />
+                <TextBox Text="{Binding InputText}"
+                         PlaceholderText="输入消息..."
+                         MinHeight="36"
+                         KeyDown="TextBox_KeyDown" />
+            </DockPanel>
+        </Border>
+
+        <!-- Messages -->
+        <ItemsControl ItemsSource="{Binding Messages}" Margin="12,8">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MessageViewModel">
+                    <Border CornerRadius="8" Padding="12,8" Margin="0,2"
+                            Background="{Binding IsOwn, Converter={x:Static vm:OwnMessageBrushConverter.Instance}}">
+                        <StackPanel Spacing="2">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{Binding SenderName}" FontSize="12" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"
+                                           FontSize="11" Foreground="Gray" />
+                                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="Gray"
+                                           IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="14" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </DockPanel>
+
+</UserControl>

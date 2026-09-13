@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NapMLS.UI.ViewModels"
+             x:Class="NapMLS.UI.Views.GroupListView"
+             x:DataType="vm:GroupListViewModel">
+
+    <DockPanel>
+        <!-- Header -->
+        <DockPanel DockPanel.Dock="Top" Margin="16,16,16,8">
+            <TextBlock Text="加密子群"
+                       FontSize="24" FontWeight="Bold"
+                       VerticalAlignment="Center" />
+            <Button Content="+ 新建"
+                    Command="{Binding CreateGroupCommand}"
+                    HorizontalAlignment="Right"
+                    MinWidth="80" Height="36" />
+        </DockPanel>
+
+        <!-- Connection status -->
+        <Border DockPanel.Dock="Top" Background="#E3F2FD" Padding="12,8" Margin="16,0,16,8" CornerRadius="6">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Ellipse Width="10" Height="10"
+                         Fill="{Binding IsConnected, Converter={x:Static vm:BoolToBrushConverter.Instance}}" />
+                <TextBlock Text="{Binding ConnectionStatus}" FontSize="13" VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Group list -->
+        <ItemsControl ItemsSource="{Binding Groups}" Margin="16,0,16,16">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:GroupItemViewModel">
+                    <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                            CornerRadius="8" Padding="16,12" Margin="0,4">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Spacing="4">
+                                <TextBlock Text="{Binding SyncState}" FontSize="12" Foreground="Gray" />
+                                <TextBlock Text="{Binding LastActivity}" FontSize="11" Foreground="Gray" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding GroupName}" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock FontSize="13" Foreground="Gray">
+                                    <TextBlock.Text>
+                                        <MultiBinding StringFormat="{}{0} 位成员 · QQ群 {1}">
+                                            <Binding Path="MemberCount" />
+                                            <Binding Path="QqGroupId" />
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </DockPanel>
+
+</UserControl>

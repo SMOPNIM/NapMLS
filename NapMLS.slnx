@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/NapMLS.Core/NapMLS.Core.csproj" />
     <Project Path="src/NapMLS.NapCat/NapMLS.NapCat.csproj" />
+    <Project Path="src/NapMLS.UI/NapMLS.UI.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/NapMLS.CoreTest/NapMLS.CoreTest.csproj" />
