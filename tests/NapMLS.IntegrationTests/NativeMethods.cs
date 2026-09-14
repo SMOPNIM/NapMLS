@@ -189,4 +189,25 @@ internal static partial class NativeMethods
         nuint* outFreeCount,
         nuint* outBytesAllocated,
         nuint* outBytesFreed);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial IntPtr napmls_provider_new_from_file(
+        byte* dbPath,
+        NapMlsError* outError);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int napmls_register_identity(
+        IntPtr provider,
+        byte* username,
+        int usernameLen,
+        IntPtr identity,
+        NapMlsError* outError);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int napmls_load_identity(
+        IntPtr provider,
+        byte* username,
+        int usernameLen,
+        IntPtr* outIdentity,
+        NapMlsError* outError);
 }

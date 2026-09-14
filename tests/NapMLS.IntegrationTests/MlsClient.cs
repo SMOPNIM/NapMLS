@@ -48,6 +48,73 @@ public sealed class MlsClient : IAsyncDisposable
         return new MlsClient(name, provider, identity);
     }
 
+    /// <summary>Create a file-backed MlsClient. Creates provider from dbPath.</summary>
+    public static unsafe MlsClient CreateFromFile(string name, string dbPath)
+    {
+        var dbPathBytes = Encoding.UTF8.GetBytes(dbPath);
+        IntPtr provider;
+        fixed (byte* pDbPath = dbPathBytes)
+        {
+            provider = NativeMethods.napmls_provider_new_from_file(pDbPath, null);
+        }
+        if (provider == IntPtr.Zero)
+            throw new InvalidOperationException($"Failed to create provider from {dbPath}");
+
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        IntPtr identity;
+        fixed (byte* pName = nameBytes)
+        {
+            var rc = NativeMethods.napmls_create_identity(
+                provider, pName, nameBytes.Length, &identity, null);
+            if (rc != NativeMethods.NAPMLS_OK || identity == IntPtr.Zero)
+                throw new InvalidOperationException($"Failed to create identity for {name}");
+        }
+
+        return new MlsClient(name, provider, identity);
+    }
+
+    /// <summary>Load an existing identity by username from a file-backed provider.
+    /// Returns null if not found.</summary>
+    public static unsafe MlsClient? LoadFromFile(string name, string dbPath)
+    {
+        var dbPathBytes = Encoding.UTF8.GetBytes(dbPath);
+        IntPtr provider;
+        fixed (byte* pDbPath = dbPathBytes)
+        {
+            provider = NativeMethods.napmls_provider_new_from_file(pDbPath, null);
+        }
+        if (provider == IntPtr.Zero)
+            throw new InvalidOperationException($"Failed to create provider from {dbPath}");
+
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        IntPtr identity;
+        fixed (byte* pName = nameBytes)
+        {
+            var rc = NativeMethods.napmls_load_identity(
+                provider, pName, nameBytes.Length, &identity, null);
+            if (rc != NativeMethods.NAPMLS_OK || identity == IntPtr.Zero)
+            {
+                NativeMethods.napmls_provider_free(provider);
+                return null;
+            }
+        }
+
+        return new MlsClient(name, provider, identity);
+    }
+
+    /// <summary>Register this identity in the identity registry (enables future LoadFromFile).</summary>
+    public unsafe void RegisterIdentity()
+    {
+        var nameBytes = Encoding.UTF8.GetBytes(_name);
+        fixed (byte* pName = nameBytes)
+        {
+            var rc = NativeMethods.napmls_register_identity(
+                _provider, pName, nameBytes.Length, _identity, null);
+            if (rc != NativeMethods.NAPMLS_OK)
+                throw new InvalidOperationException($"Failed to register identity: {rc}");
+        }
+    }
+
     /// <summary>Get this client's identity fingerprint.</summary>
     public unsafe string GetFingerprint()
     {

@@ -4,6 +4,7 @@
 
 pub mod encrypted_storage;
 pub mod ffi;
+pub mod identity_registry;
 mod p0d_e2e_test;
 
 #[cfg(test)]
@@ -211,5 +212,154 @@ mod p0c_encrypted_storage {
 
         assert!(loaded_group.is_some());
         println!("✅ Encrypted group loaded from storage");
+    }
+}
+
+// P1d-2b: Verify identity persistence across provider restarts.
+// This is the critical path test — if this fails, napmls_load_identity cannot work.
+#[cfg(test)]
+mod p1d2b_identity_persistence {
+    use openmls::prelude::*;
+    use openmls_basic_credential::SignatureKeyPair;
+    use crate::encrypted_storage::try_init_encryption_key;
+    use crate::ffi::NapMlsProvider;
+    use crate::identity_registry;
+
+    fn init_key() {
+        try_init_encryption_key([0xAB; 32]);
+    }
+
+    #[test]
+    fn test_create_drop_reopen_load_fingerprint_match() {
+        init_key();
+
+        let db_path = "test_identity_persistence.db";
+        // Clean up any previous test DB
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+
+        // Step 1: Create identity on first provider instance
+        let fingerprint_1;
+        {
+            let provider = NapMlsProvider::from_file(db_path)
+                .expect("Failed to create provider from file");
+
+            let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+            let credential = BasicCredential::new(b"alice".to_vec());
+            let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())
+                .expect("Failed to create signature key pair");
+            signature_keys.store(provider.storage())
+                .expect("Failed to store signature key pair");
+
+            // Register in identity registry
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            identity_registry::ensure_table(&conn).unwrap();
+            identity_registry::register_identity(&conn, "alice", &signature_keys).unwrap();
+
+            fingerprint_1 = identity_registry::compute_fingerprint(signature_keys.public());
+            println!("Step 1 - Created identity, fingerprint: {:02x?}", fingerprint_1);
+
+            // Provider dropped here — everything flushed to disk
+        }
+
+        // Step 2: Reopen DB with new provider instance
+        let fingerprint_2;
+        {
+            let provider = NapMlsProvider::from_file(db_path)
+                .expect("Failed to reopen provider from file");
+
+            // Load from identity registry
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let record = identity_registry::load_identity_record(&conn, "alice")
+                .expect("Failed to query identity registry")
+                .expect("Identity not found in registry");
+
+            // Reconstruct SignatureKeyPair from OpenMLS storage
+            let signature_keys = identity_registry::reconstruct_keypair(provider.storage(), &record)
+                .expect("Failed to reconstruct signature key pair");
+
+            fingerprint_2 = identity_registry::compute_fingerprint(signature_keys.public());
+            println!("Step 2 - Loaded identity, fingerprint: {:02x?}", fingerprint_2);
+
+            // Verify fingerprint matches
+            assert_eq!(fingerprint_1, fingerprint_2,
+                "Fingerprint mismatch after restart! Identity persistence failed.");
+
+            // Also verify we can use the loaded identity to create a group
+            let credential = BasicCredential::new(b"alice".to_vec());
+            let credential_with_key = CredentialWithKey {
+                credential: credential.into(),
+                signature_key: signature_keys.public().into(),
+            };
+
+            let group = MlsGroup::new(
+                &provider,
+                &signature_keys,
+                &MlsGroupCreateConfig::default(),
+                credential_with_key,
+            ).expect("Failed to create group with loaded identity");
+
+            println!("Step 3 - Created group with loaded identity, epoch: {}", group.epoch());
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+
+        println!("✅ Identity persistence test passed: create → drop → reopen → load → fingerprint match");
+    }
+
+    #[test]
+    fn test_multiple_identities_persistence() {
+        init_key();
+
+        let db_path = "test_multi_identity.db";
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+
+        let (fp_alice_1, fp_bob_1);
+        {
+            let provider = NapMlsProvider::from_file(db_path).unwrap();
+            let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+
+            // Alice
+            let alice_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm()).unwrap();
+            alice_keys.store(provider.storage()).unwrap();
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            identity_registry::ensure_table(&conn).unwrap();
+            identity_registry::register_identity(&conn, "alice", &alice_keys).unwrap();
+            fp_alice_1 = identity_registry::compute_fingerprint(alice_keys.public());
+
+            // Bob
+            let bob_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm()).unwrap();
+            bob_keys.store(provider.storage()).unwrap();
+            identity_registry::register_identity(&conn, "bob", &bob_keys).unwrap();
+            fp_bob_1 = identity_registry::compute_fingerprint(bob_keys.public());
+        }
+
+        // Reopen and verify both
+        {
+            let provider = NapMlsProvider::from_file(db_path).unwrap();
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+
+            let alice_rec = identity_registry::load_identity_record(&conn, "alice").unwrap().unwrap();
+            let alice_keys = identity_registry::reconstruct_keypair(provider.storage(), &alice_rec).unwrap();
+            let fp_alice_2 = identity_registry::compute_fingerprint(alice_keys.public());
+            assert_eq!(fp_alice_1, fp_alice_2);
+
+            let bob_rec = identity_registry::load_identity_record(&conn, "bob").unwrap().unwrap();
+            let bob_keys = identity_registry::reconstruct_keypair(provider.storage(), &bob_rec).unwrap();
+            let fp_bob_2 = identity_registry::compute_fingerprint(bob_keys.public());
+            assert_eq!(fp_bob_1, fp_bob_2);
+
+            println!("✅ Multiple identities persisted and loaded successfully");
+        }
+
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
     }
 }

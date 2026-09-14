@@ -71,6 +71,7 @@ use crate::encrypted_storage::{EncryptedCodec, try_init_encryption_key};
 pub struct NapMlsProvider {
     crypto: RustCrypto,
     storage: SqliteStorageProvider<EncryptedCodec, rusqlite::Connection>,
+    db_path: Option<String>,
 }
 
 impl NapMlsProvider {
@@ -82,7 +83,35 @@ impl NapMlsProvider {
         Self {
             crypto: RustCrypto::default(),
             storage,
+            db_path: None,
         }
+    }
+
+    pub fn from_file(path: &str) -> Result<Self, String> {
+        let conn = rusqlite::Connection::open(path)
+            .map_err(|e| format!("Failed to open SQLite: {}", e))?;
+        crate::identity_registry::ensure_table(&conn)
+            .map_err(|e| format!("Failed to create identity table: {}", e))?;
+        let mut storage = SqliteStorageProvider::<EncryptedCodec, rusqlite::Connection>::new(conn);
+        storage.run_migrations()
+            .map_err(|e| format!("Failed to run migrations: {}", e))?;
+        Ok(Self {
+            crypto: RustCrypto::default(),
+            storage,
+            db_path: Some(path.to_string()),
+        })
+    }
+
+    pub fn from_storage(storage: SqliteStorageProvider<EncryptedCodec, rusqlite::Connection>) -> Self {
+        Self {
+            crypto: RustCrypto::default(),
+            storage,
+            db_path: None,
+        }
+    }
+
+    pub fn db_path(&self) -> Option<&str> {
+        self.db_path.as_deref()
     }
 }
 
@@ -206,6 +235,39 @@ pub extern "C" fn napmls_provider_new(out_error: *mut NapMlsError) -> *mut NapMl
     }
 }
 
+/// Create a provider from a file-backed SQLite database.
+/// The db_path must be a valid UTF-8 C string.
+/// Creates the database file if it doesn't exist.
+#[no_mangle]
+pub extern "C" fn napmls_provider_new_from_file(
+    db_path: *const c_char,
+    out_error: *mut NapMlsError,
+) -> *mut NapMlsProvider {
+    let result = ffi_catch(AssertUnwindSafe(|| {
+        if db_path.is_null() {
+            return Err(NAPMLS_ERR_NULL_POINTER);
+        }
+        let path = unsafe { std::ffi::CStr::from_ptr(db_path) }
+            .to_str()
+            .map_err(|_| NAPMLS_ERR_NULL_POINTER)?;
+        let provider = NapMlsProvider::from_file(path)
+            .map_err(|e| {
+                eprintln!("Failed to create provider from file: {}", e);
+                NAPMLS_ERR_STORAGE
+            })?;
+        let handle = Box::into_raw(Box::new(provider));
+        track_alloc(std::mem::size_of::<NapMlsProvider>());
+        Ok(handle)
+    }));
+    match result {
+        Ok(ptr) => ptr,
+        Err(code) => {
+            unsafe { write_error(out_error, code, "Failed to create provider from file"); }
+            ptr::null_mut()
+        }
+    }
+}
+
 /// Free a provider handle.
 #[no_mangle]
 pub extern "C" fn napmls_provider_free(provider: *mut NapMlsProvider) {
@@ -216,6 +278,8 @@ pub extern "C" fn napmls_provider_free(provider: *mut NapMlsProvider) {
 }
 
 /// Create an identity (signature key pair + credential).
+/// If the provider is file-backed, automatically registers the identity
+/// in the registry table so it can be loaded later by username.
 /// Returns NAPMLS_OK on success. The identity handle is written to `out_identity`.
 #[no_mangle]
 pub extern "C" fn napmls_create_identity(
@@ -231,6 +295,8 @@ pub extern "C" fn napmls_create_identity(
         }
         let provider = unsafe { &*provider };
         let name_slice = unsafe { std::slice::from_raw_parts(name, name_len) };
+        let username = std::str::from_utf8(name_slice)
+            .map_err(|_| NAPMLS_ERR_NULL_POINTER)?;
 
         let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
         let credential = BasicCredential::new(name_slice.to_vec());
@@ -238,6 +304,14 @@ pub extern "C" fn napmls_create_identity(
             .map_err(|_| NAPMLS_ERR_INTERNAL)?;
         signature_keys.store(provider.storage())
             .map_err(|_| NAPMLS_ERR_STORAGE)?;
+
+        // Auto-register in identity registry if file-backed
+        if let Some(db_path) = provider.db_path() {
+            if let Ok(conn) = rusqlite::Connection::open(db_path) {
+                let _ = crate::identity_registry::ensure_table(&conn);
+                let _ = crate::identity_registry::register_identity(&conn, username, &signature_keys);
+            }
+        }
 
         let credential_with_key = CredentialWithKey {
             credential: credential.into(),
@@ -268,6 +342,130 @@ pub extern "C" fn napmls_identity_free(identity: *mut NapMlsIdentityHandle) {
     if !identity.is_null() {
         track_free(std::mem::size_of::<NapMlsIdentityHandle>());
         unsafe { drop(Box::from_raw(identity)); }
+    }
+}
+
+/// Register an existing identity in the identity registry (username → public key mapping).
+/// This must be called after napmls_create_identity to enable future loading by username.
+/// Requires a file-backed provider (db_path must be set).
+#[no_mangle]
+pub extern "C" fn napmls_register_identity(
+    provider: *const NapMlsProvider,
+    username: *const u8,
+    username_len: usize,
+    identity: *const NapMlsIdentityHandle,
+    out_error: *mut NapMlsError,
+) -> i32 {
+    let result = ffi_catch(AssertUnwindSafe(|| {
+        if provider.is_null() || username.is_null() || identity.is_null() {
+            return Err(NAPMLS_ERR_NULL_POINTER);
+        }
+        let provider = unsafe { &*provider };
+        let identity = unsafe { &*identity };
+        let username_str = std::str::from_utf8(
+            unsafe { std::slice::from_raw_parts(username, username_len) }
+        ).map_err(|_| NAPMLS_ERR_NULL_POINTER)?;
+
+        let db_path = provider.db_path().ok_or_else(|| {
+            eprintln!("register_identity requires a file-backed provider");
+            NAPMLS_ERR_STORAGE
+        })?;
+
+        let conn = rusqlite::Connection::open(db_path)
+            .map_err(|e| {
+                eprintln!("Failed to open DB for registry: {}", e);
+                NAPMLS_ERR_STORAGE
+            })?;
+
+        crate::identity_registry::ensure_table(&conn)
+            .map_err(|e| {
+                eprintln!("Failed to create identity table: {}", e);
+                NAPMLS_ERR_STORAGE
+            })?;
+
+        crate::identity_registry::register_identity(&conn, username_str, &identity.signature_keys)
+            .map_err(|e| {
+                eprintln!("Failed to register identity: {}", e);
+                NAPMLS_ERR_STORAGE
+            })?;
+
+        Ok(NAPMLS_OK)
+    }));
+
+    match result {
+        Ok(code) => code,
+        Err(code) => {
+            unsafe { write_error(out_error, code, "Failed to register identity"); }
+            code
+        }
+    }
+}
+
+/// Load an identity by username from the identity registry.
+/// Returns NAPMLS_OK on success, NAPMLS_ERR_NOT_FOUND if username not registered.
+/// The loaded identity handle is written to `out_identity`.
+#[no_mangle]
+pub extern "C" fn napmls_load_identity(
+    provider: *const NapMlsProvider,
+    username: *const u8,
+    username_len: usize,
+    out_identity: *mut *mut NapMlsIdentityHandle,
+    out_error: *mut NapMlsError,
+) -> i32 {
+    let result = ffi_catch(AssertUnwindSafe(|| {
+        if provider.is_null() || username.is_null() || out_identity.is_null() {
+            return Err(NAPMLS_ERR_NULL_POINTER);
+        }
+        let provider = unsafe { &*provider };
+        let username_str = std::str::from_utf8(
+            unsafe { std::slice::from_raw_parts(username, username_len) }
+        ).map_err(|_| NAPMLS_ERR_NULL_POINTER)?;
+
+        let db_path = provider.db_path().ok_or_else(|| {
+            eprintln!("load_identity requires a file-backed provider");
+            NAPMLS_ERR_STORAGE
+        })?;
+
+        let conn = rusqlite::Connection::open(db_path)
+            .map_err(|e| {
+                eprintln!("Failed to open DB for registry: {}", e);
+                NAPMLS_ERR_STORAGE
+            })?;
+
+        let record = crate::identity_registry::load_identity_record(&conn, username_str)
+            .map_err(|e| {
+                eprintln!("Failed to query identity registry: {}", e);
+                NAPMLS_ERR_STORAGE
+            })?
+            .ok_or(NAPMLS_ERR_NOT_FOUND)?;
+
+        let signature_keys = crate::identity_registry::reconstruct_keypair(provider.storage(), &record)
+            .map_err(|e| {
+                eprintln!("Failed to reconstruct key pair: {}", e);
+                NAPMLS_ERR_STORAGE
+            })?;
+
+        let credential = BasicCredential::new(username_str.as_bytes().to_vec());
+        let credential_with_key = CredentialWithKey {
+            credential: credential.into(),
+            signature_key: signature_keys.public().into(),
+        };
+
+        let handle = Box::new(NapMlsIdentityHandle {
+            signature_keys,
+            credential_with_key,
+        });
+        track_alloc(std::mem::size_of::<NapMlsIdentityHandle>());
+        unsafe { *out_identity = Box::into_raw(handle); }
+        Ok(NAPMLS_OK)
+    }));
+
+    match result {
+        Ok(code) => code,
+        Err(code) => {
+            unsafe { write_error(out_error, code, "Failed to load identity"); }
+            code
+        }
     }
 }
 
@@ -993,11 +1191,19 @@ mod ffi_tests {
         assert_eq!(rc, NAPMLS_OK, "Failed to generate key package");
         assert!(kp_bytes.len > 0, "Key package bytes should not be empty");
 
-        // 5. Alice adds Bob (key package bytes are opaque data, Alice doesn't need Bob's provider)
+        // 5. Alice adds Bob (wrap KP in multi-KP format: [count:4][len:4][kp..])
         let mut welcome_bytes = NapMlsBytes { ptr: ptr::null_mut(), len: 0 };
+        let kp_len = kp_bytes.len as u32;
+        let mut multi_kp = Vec::with_capacity(8 + kp_bytes.len);
+        multi_kp.extend_from_slice(&1u32.to_le_bytes()); // count = 1
+        multi_kp.extend_from_slice(&kp_len.to_le_bytes()); // len of KP
+        unsafe {
+            let kp_data = std::slice::from_raw_parts(kp_bytes.ptr, kp_bytes.len);
+            multi_kp.extend_from_slice(kp_data);
+        }
         let rc = napmls_add_members(
             alice_provider, alice_group, alice_identity,
-            kp_bytes.ptr, kp_bytes.len,
+            multi_kp.as_ptr(), multi_kp.len(),
             &mut welcome_bytes, ptr::null_mut(),
         );
         assert_eq!(rc, NAPMLS_OK, "Failed to add Bob");
@@ -1211,11 +1417,19 @@ mod ffi_tests {
         assert!(!members_json.contains("Bob"));
         napmls_free_bytes(members);
 
-        // Add Bob
+        // Add Bob (wrap KP in multi-KP format)
         let mut kp = NapMlsBytes { ptr: ptr::null_mut(), len: 0 };
         napmls_generate_key_package(bob_provider, bob_identity, &mut kp, ptr::null_mut());
+        let kp_len = kp.len as u32;
+        let mut multi_kp = Vec::with_capacity(8 + kp.len);
+        multi_kp.extend_from_slice(&1u32.to_le_bytes());
+        multi_kp.extend_from_slice(&kp_len.to_le_bytes());
+        unsafe {
+            let kp_data = std::slice::from_raw_parts(kp.ptr, kp.len);
+            multi_kp.extend_from_slice(kp_data);
+        }
         let mut welcome = NapMlsBytes { ptr: ptr::null_mut(), len: 0 };
-        napmls_add_members(alice_provider, alice_group, alice_identity, kp.ptr, kp.len, &mut welcome, ptr::null_mut());
+        napmls_add_members(alice_provider, alice_group, alice_identity, multi_kp.as_ptr(), multi_kp.len(), &mut welcome, ptr::null_mut());
         napmls_free_bytes(kp);
         napmls_free_bytes(welcome);
 

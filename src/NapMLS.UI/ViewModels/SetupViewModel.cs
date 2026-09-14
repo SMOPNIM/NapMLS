@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NapMLS.UI.Models;
@@ -6,15 +8,16 @@ using NapMLS.UI.Services;
 namespace NapMLS.UI.ViewModels;
 
 /// <summary>
-/// P1d-2: Setup page — two-step flow.
+/// P1d-2b: Setup page — two-step flow with real FFI.
 /// Step 1: NapCat connection config + test.
-/// Step 2: Identity generation + safety code display.
-/// Uses fake identity data for now; real FFI in P1d-2b.
+/// Step 2: Identity generation with real MlsClient.
 /// </summary>
 public partial class SetupViewModel : ViewModelBase
 {
     private readonly Action<AppConfig> _onCompleted;
     private readonly AppConfig _config;
+    private IntPtr _provider;
+    private bool _ffiInitialized;
 
     // -- Step tracking --
     [ObservableProperty]
@@ -68,12 +71,15 @@ public partial class SetupViewModel : ViewModelBase
     [ObservableProperty]
     public partial string StepTitle { get; set; } = "步骤 1/2：NapCat 连接配置";
 
+    private string DbPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NapMLS", "mls_data.db");
+
     public SetupViewModel(AppConfig config, Action<AppConfig> onCompleted)
     {
         _config = config;
         _onCompleted = onCompleted;
 
-        // Restore saved values
         NapCatHost = config.NapCatHost;
         NapCatPort = config.NapCatPort;
         NapCatToken = config.NapCatToken;
@@ -88,6 +94,47 @@ public partial class SetupViewModel : ViewModelBase
         }
     }
 
+    private void EnsureFfiInitialized()
+    {
+        if (_ffiInitialized) return;
+
+        // P1d-2b: use fixed test key. P1d-5: derive from user password via Argon2id.
+        byte[] testKey = SHA256.HashData(Encoding.UTF8.GetBytes("napmls-test-password"));
+        unsafe
+        {
+            fixed (byte* pKey = testKey)
+            {
+                NapMlsNative.napmls_init(pKey, testKey.Length);
+            }
+        }
+        _ffiInitialized = true;
+    }
+
+    private IntPtr GetOrCreateProvider()
+    {
+        if (_provider != IntPtr.Zero) return _provider;
+
+        EnsureFfiInitialized();
+
+        var dir = Path.GetDirectoryName(DbPath);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+
+        var dbPathBytes = Encoding.UTF8.GetBytes(DbPath);
+        unsafe
+        {
+            fixed (byte* pDbPath = dbPathBytes)
+            {
+                _provider = NapMlsNative.napmls_provider_new_from_file(pDbPath, null);
+            }
+        }
+
+        if (_provider == IntPtr.Zero)
+            throw new InvalidOperationException("Failed to create MLS provider");
+
+        return _provider;
+    }
+
     [RelayCommand]
     private async Task TestConnectionAsync()
     {
@@ -100,8 +147,6 @@ public partial class SetupViewModel : ViewModelBase
         {
             // P1d-2a: simulate connection test
             await Task.Delay(800);
-
-            // TODO: P1d-2b — real NapCat WebSocket test
             IsConnected = true;
             ConnectionStatus = $"已连接 ws://{NapCatHost}:{NapCatPort}";
         }
@@ -122,7 +167,6 @@ public partial class SetupViewModel : ViewModelBase
     {
         ErrorMessage = null;
 
-        // Save NapCat config
         _config.NapCatHost = NapCatHost;
         _config.NapCatPort = NapCatPort;
         _config.NapCatToken = NapCatToken;
@@ -156,17 +200,44 @@ public partial class SetupViewModel : ViewModelBase
 
         try
         {
-            // P1d-2a: fake fingerprint (8 random bytes)
-            await Task.Delay(600);
+            await Task.Run(() =>
+            {
+                var provider = GetOrCreateProvider();
+                var nameBytes = Encoding.UTF8.GetBytes(Username);
 
-            byte[] fakeFingerprint = new byte[8];
-            Random.Shared.NextBytes(fakeFingerprint);
+                // Try to load existing identity first
+                IntPtr identity;
+                unsafe
+                {
+                    fixed (byte* pName = nameBytes)
+                    {
+                        var rc = NapMlsNative.napmls_load_identity(
+                            provider, pName, nameBytes.Length, &identity, null);
 
-            FingerprintHex = Convert.ToHexString(fakeFingerprint).ToUpperInvariant();
-            SafetyCode = SafetyCodeFormatter.Format(fakeFingerprint);
+                        if (rc == NapMlsNative.NAPMLS_OK && identity != IntPtr.Zero)
+                        {
+                            // Loaded existing identity
+                            SetFingerprintFromIdentity(identity);
+                            return;
+                        }
+
+                        // Not found — create new
+                        rc = NapMlsNative.napmls_create_identity(
+                            provider, pName, nameBytes.Length, &identity, null);
+                        if (rc != NapMlsNative.NAPMLS_OK || identity == IntPtr.Zero)
+                            throw new InvalidOperationException($"Failed to create identity: rc={rc}");
+
+                        // Register for future loading
+                        NapMlsNative.napmls_register_identity(
+                            provider, pName, nameBytes.Length, identity, null);
+
+                        SetFingerprintFromIdentity(identity);
+                    }
+                }
+            });
+
             IsIdentityGenerated = true;
 
-            // Persist
             _config.IdentityUsername = Username;
             _config.IdentityFingerprint = FingerprintHex;
             _config.IdentitySafetyCode = SafetyCode;
@@ -182,14 +253,24 @@ public partial class SetupViewModel : ViewModelBase
         }
     }
 
+    private unsafe void SetFingerprintFromIdentity(IntPtr identity)
+    {
+        NapMlsNative.NapMlsBytes fp = default;
+        var rc = NapMlsNative.napmls_identity_fingerprint(identity, &fp, null);
+        if (rc != NapMlsNative.NAPMLS_OK || fp.len < 8)
+            throw new InvalidOperationException($"Failed to get fingerprint: rc={rc}");
+
+        var fpBytes = NapMlsNative.ReadBytes(fp);
+        NapMlsNative.napmls_free_bytes(fp);
+
+        FingerprintHex = Convert.ToHexString(fpBytes[..8]).ToUpperInvariant();
+        SafetyCode = SafetyCodeFormatter.Format(fpBytes[..8]);
+    }
+
     [RelayCommand]
     private void CopySafetyCode()
     {
-        if (SafetyCode != null)
-        {
-            // Avalonia clipboard — handled via TopLevel in View code-behind
-            // This is a placeholder; actual clipboard set in SetupView.axaml.cs
-        }
+        // Clipboard handled in View code-behind via TopLevel
     }
 
     [RelayCommand]
@@ -203,6 +284,14 @@ public partial class SetupViewModel : ViewModelBase
 
         _config.RiskWarningAccepted = true;
         AppConfigService.Save(_config);
+
+        // Free provider — will be recreated by the next MlsClient
+        if (_provider != IntPtr.Zero)
+        {
+            NapMlsNative.napmls_provider_free(_provider);
+            _provider = IntPtr.Zero;
+        }
+
         _onCompleted(_config);
     }
 }

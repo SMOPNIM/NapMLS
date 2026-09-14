@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
@@ -26,5 +27,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NapMLS.Core\NapMLS.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\native\napmls-ffi\target\release\napmls_ffi.dll" CopyToOutputDirectory="PreserveNewest" Link="napmls_ffi.dll" />
   </ItemGroup>
 </Project>
