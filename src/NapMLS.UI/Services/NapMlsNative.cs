@@ -62,6 +62,21 @@ internal static partial class NapMlsNative
         IntPtr* outIdentity, NapMlsError* outError);
 
     [LibraryImport(LibName)]
+    public static unsafe partial int napmls_create_group(
+        IntPtr provider, IntPtr identity,
+        byte* groupName, int groupNameLen,
+        IntPtr* outGroup, NapMlsError* outError);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int napmls_load_group(
+        IntPtr provider, byte* groupId, int groupIdLen,
+        IntPtr* outGroup, NapMlsError* outError);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int napmls_list_groups(
+        IntPtr provider, NapMlsBytes* outGroups, NapMlsError* outError);
+
+    [LibraryImport(LibName)]
     public static unsafe partial int napmls_load_identity(
         IntPtr provider, byte* username, int usernameLen,
         IntPtr* outIdentity, NapMlsError* outError);

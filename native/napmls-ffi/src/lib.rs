@@ -363,3 +363,97 @@ mod p1d2b_identity_persistence {
         let _ = std::fs::remove_file(format!("{}-shm", db_path));
     }
 }
+
+// P1d-3: Verify group persistence across provider restarts.
+#[cfg(test)]
+mod p1d3_group_persistence {
+    use openmls::prelude::*;
+    use openmls_basic_credential::SignatureKeyPair;
+    use crate::encrypted_storage::try_init_encryption_key;
+    use crate::ffi::NapMlsProvider;
+    use crate::identity_registry;
+
+    fn init_key() {
+        try_init_encryption_key([0xCD; 32]);
+    }
+
+    #[test]
+    fn test_create_group_drop_reopen_load() {
+        init_key();
+
+        let db_path = "test_group_persistence.db";
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+
+        let (group_id_bytes, epoch_1);
+        {
+            let provider = NapMlsProvider::from_file(db_path).unwrap();
+            let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+            let credential = BasicCredential::new(b"alice".to_vec());
+            let keys = SignatureKeyPair::new(ciphersuite.signature_algorithm()).unwrap();
+            keys.store(provider.storage()).unwrap();
+
+            let cred = CredentialWithKey {
+                credential: credential.into(),
+                signature_key: keys.public().into(),
+            };
+
+            let config = MlsGroupCreateConfig::builder()
+                .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
+                .use_ratchet_tree_extension(true)
+                .build();
+
+            let mut group = MlsGroup::new(&provider, &keys, &config, cred).unwrap();
+
+            // Register in group registry
+            group_id_bytes = group.group_id().to_vec();
+            epoch_1 = group.epoch().as_u64();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            identity_registry::ensure_group_table(&conn).unwrap();
+            identity_registry::register_group(
+                &conn, &group_id_bytes, "TestGroup", None, epoch_1,
+            ).unwrap();
+
+            println!("Step 1 - Created group, id_len={}, epoch={}", group_id_bytes.len(), epoch_1);
+        }
+
+        // Reopen and load
+        {
+            let provider = NapMlsProvider::from_file(db_path).unwrap();
+
+            // Load from registry
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let record = identity_registry::load_group_record(&conn, &group_id_bytes)
+                .unwrap()
+                .expect("Group not found in registry");
+            assert_eq!(record.name, "TestGroup");
+            assert_eq!(record.last_epoch, epoch_1);
+
+            // Load from OpenMLS storage
+            let group_id = GroupId::from_slice(&group_id_bytes);
+            let loaded = MlsGroup::load(provider.storage(), &group_id)
+                .expect("Failed to load group")
+                .expect("Group not found in OpenMLS storage");
+            assert_eq!(loaded.epoch().as_u64(), epoch_1);
+
+            println!("Step 2 - Loaded group, epoch={}", loaded.epoch());
+        }
+
+        // List groups
+        {
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let groups = identity_registry::list_groups(&conn).unwrap();
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0].name, "TestGroup");
+            println!("Step 3 - Listed groups: {}", groups.len());
+        }
+
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+
+        println!("✅ Group persistence test passed");
+    }
+}

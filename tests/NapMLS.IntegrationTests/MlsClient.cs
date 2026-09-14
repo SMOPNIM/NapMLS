@@ -140,16 +140,50 @@ public sealed class MlsClient : IAsyncDisposable
     }
 
     /// <summary>Create a new MLS group. Returns groupHash.</summary>
-    public unsafe string CreateGroup()
+    public unsafe string CreateGroup(string name = "default")
     {
         IntPtr group;
-        var rc = NativeMethods.napmls_create_group(_provider, _identity, &group, null);
-        if (rc != NativeMethods.NAPMLS_OK || group == IntPtr.Zero)
-            throw new InvalidOperationException($"Failed to create group: {rc}");
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        fixed (byte* pName = nameBytes)
+        {
+            var rc = NativeMethods.napmls_create_group(
+                _provider, _identity, pName, nameBytes.Length, &group, null);
+            if (rc != NativeMethods.NAPMLS_OK || group == IntPtr.Zero)
+                throw new InvalidOperationException($"Failed to create group: {rc}");
+        }
 
         var groupHash = GetGroupHash(group);
         _groups[groupHash] = group;
         return groupHash;
+    }
+
+    /// <summary>Load an existing group by its raw group_id bytes.</summary>
+    public unsafe string? LoadGroup(byte[] groupId)
+    {
+        IntPtr group;
+        fixed (byte* pId = groupId)
+        {
+            var rc = NativeMethods.napmls_load_group(
+                _provider, pId, groupId.Length, &group, null);
+            if (rc != NativeMethods.NAPMLS_OK || group == IntPtr.Zero)
+                return null;
+        }
+
+        var groupHash = GetGroupHash(group);
+        _groups[groupHash] = group;
+        return groupHash;
+    }
+
+    /// <summary>List all groups in the registry. Returns JSON array.</summary>
+    public unsafe string ListGroups()
+    {
+        NativeMethods.NapMlsBytes groups = default;
+        var rc = NativeMethods.napmls_list_groups(_provider, &groups, null);
+        if (rc != NativeMethods.NAPMLS_OK)
+            throw new InvalidOperationException($"Failed to list groups: {rc}");
+        var json = Encoding.UTF8.GetString(NativeMethods.ReadBytes(groups));
+        NativeMethods.napmls_free_bytes(groups);
+        return json;
     }
 
     /// <summary>Add members to a group by their key packages. Returns welcome bytes.

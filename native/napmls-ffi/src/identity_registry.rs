@@ -16,8 +16,15 @@ pub struct IdentityRecord {
     pub signature_scheme: u16,
 }
 
-/// Ensure the identity registry table exists.
+/// Ensure both registry tables exist.
 pub fn ensure_table(conn: &Connection) -> Result<(), rusqlite::Error> {
+    ensure_identity_table(conn)?;
+    ensure_group_table(conn)?;
+    Ok(())
+}
+
+/// Ensure the identity registry table exists.
+fn ensure_identity_table(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS napmls_identities (
             username TEXT PRIMARY KEY,
@@ -99,6 +106,120 @@ pub fn format_safety_code(fingerprint: &[u8; 8]) -> String {
         "NAPMLS-{}-{}-{}-{}",
         &hex[0..4], &hex[4..8], &hex[8..12], &hex[12..16]
     )
+}
+
+// ===== Group Registry =====
+
+/// Row stored in the `napmls_groups` table.
+pub struct GroupRecord {
+    pub group_id: Vec<u8>,
+    pub name: String,
+    pub qq_group_id: Option<String>,
+    pub created_at: i64,
+    pub last_epoch: u64,
+}
+
+/// Ensure the group registry table exists.
+pub fn ensure_group_table(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS napmls_groups (
+            group_id BLOB PRIMARY KEY,
+            name TEXT NOT NULL,
+            qq_group_id TEXT,
+            created_at INTEGER NOT NULL,
+            last_epoch INTEGER NOT NULL DEFAULT 0
+        )"
+    )
+}
+
+/// Register a group in the registry.
+pub fn register_group(
+    conn: &Connection,
+    group_id: &[u8],
+    name: &str,
+    qq_group_id: Option<&str>,
+    epoch: u64,
+) -> Result<(), rusqlite::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO napmls_groups (group_id, name, qq_group_id, created_at, last_epoch)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![group_id, name, qq_group_id, now, epoch],
+    )?;
+    Ok(())
+}
+
+/// Update the epoch for a group.
+pub fn update_group_epoch(
+    conn: &Connection,
+    group_id: &[u8],
+    epoch: u64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE napmls_groups SET last_epoch = ?1 WHERE group_id = ?2",
+        params![epoch, group_id],
+    )?;
+    Ok(())
+}
+
+/// List all groups in the registry.
+pub fn list_groups(conn: &Connection) -> Result<Vec<GroupRecord>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT group_id, name, qq_group_id, created_at, last_epoch FROM napmls_groups ORDER BY created_at DESC"
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(GroupRecord {
+            group_id: row.get(0)?,
+            name: row.get(1)?,
+            qq_group_id: row.get(2)?,
+            created_at: row.get(3)?,
+            last_epoch: row.get(4)?,
+        })
+    })?;
+
+    rows.collect()
+}
+
+/// Load a single group record by group_id.
+pub fn load_group_record(
+    conn: &Connection,
+    group_id: &[u8],
+) -> Result<Option<GroupRecord>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT group_id, name, qq_group_id, created_at, last_epoch FROM napmls_groups WHERE group_id = ?1"
+    )?;
+
+    let mut rows = stmt.query_map(params![group_id], |row| {
+        Ok(GroupRecord {
+            group_id: row.get(0)?,
+            name: row.get(1)?,
+            qq_group_id: row.get(2)?,
+            created_at: row.get(3)?,
+            last_epoch: row.get(4)?,
+        })
+    })?;
+
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// Delete a group from the registry.
+pub fn delete_group(
+    conn: &Connection,
+    group_id: &[u8],
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM napmls_groups WHERE group_id = ?1",
+        params![group_id],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]

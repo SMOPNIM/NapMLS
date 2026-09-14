@@ -470,27 +470,35 @@ pub extern "C" fn napmls_load_identity(
 }
 
 /// Create a new MLS group. Returns NAPMLS_OK on success.
+/// Automatically registers the group in the group registry (if file-backed).
 /// The group handle is written to `out_group`.
 #[no_mangle]
 pub extern "C" fn napmls_create_group(
     provider: *const NapMlsProvider,
     identity: *const NapMlsIdentityHandle,
+    group_name: *const u8,
+    group_name_len: usize,
     out_group: *mut *mut NapMlsGroupHandle,
     out_error: *mut NapMlsError,
 ) -> i32 {
     let result = ffi_catch(AssertUnwindSafe(|| {
-        if provider.is_null() || identity.is_null() || out_group.is_null() {
+        if provider.is_null() || identity.is_null() || out_group.is_null()
+            || group_name.is_null() || group_name_len == 0
+        {
             return Err(NAPMLS_ERR_NULL_POINTER);
         }
         let provider = unsafe { &*provider };
         let identity = unsafe { &*identity };
+        let name_str = std::str::from_utf8(
+            unsafe { std::slice::from_raw_parts(group_name, group_name_len) }
+        ).map_err(|_| NAPMLS_ERR_NULL_POINTER)?;
 
         let config = MlsGroupCreateConfig::builder()
             .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
             .use_ratchet_tree_extension(true)
             .build();
 
-        let group = MlsGroup::new(
+        let mut group = MlsGroup::new(
             provider,
             &identity.signature_keys,
             &config,
@@ -500,6 +508,18 @@ pub extern "C" fn napmls_create_group(
             eprintln!("MlsGroup::new failed: {:?}", e);
             NAPMLS_ERR_MLS_PROTOCOL
         })?;
+
+        // Register in group registry if file-backed
+        if let Some(db_path) = provider.db_path() {
+            if let Ok(conn) = rusqlite::Connection::open(db_path) {
+                let _ = crate::identity_registry::ensure_group_table(&conn);
+                let group_id = group.group_id().to_vec();
+                let epoch = group.epoch().as_u64();
+                let _ = crate::identity_registry::register_group(
+                    &conn, &group_id, name_str, None, epoch,
+                );
+            }
+        }
 
         let join_config = MlsGroupJoinConfig::builder()
             .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
@@ -527,6 +547,127 @@ pub extern "C" fn napmls_group_free(group: *mut NapMlsGroupHandle) {
     if !group.is_null() {
         track_free(std::mem::size_of::<NapMlsGroupHandle>());
         unsafe { drop(Box::from_raw(group)); }
+    }
+}
+
+/// Load a group by its group_id from persistent storage.
+/// Requires a file-backed provider.
+/// The group_id is the raw bytes from MlsGroup::group_id().
+/// Returns NAPMLS_ERR_NOT_FOUND if the group doesn't exist in the registry or OpenMLS storage.
+#[no_mangle]
+pub extern "C" fn napmls_load_group(
+    provider: *const NapMlsProvider,
+    group_id_data: *const u8,
+    group_id_len: usize,
+    out_group: *mut *mut NapMlsGroupHandle,
+    out_error: *mut NapMlsError,
+) -> i32 {
+    let result = ffi_catch(AssertUnwindSafe(|| {
+        if provider.is_null() || group_id_data.is_null() || out_group.is_null() {
+            return Err(NAPMLS_ERR_NULL_POINTER);
+        }
+        let provider = unsafe { &*provider };
+        let group_id_bytes = unsafe { std::slice::from_raw_parts(group_id_data, group_id_len) };
+
+        // Verify the group exists in the registry
+        let db_path = provider.db_path().ok_or_else(|| {
+            eprintln!("load_group requires a file-backed provider");
+            NAPMLS_ERR_STORAGE
+        })?;
+        let conn = rusqlite::Connection::open(db_path)
+            .map_err(|_| NAPMLS_ERR_STORAGE)?;
+
+        crate::identity_registry::load_group_record(&conn, group_id_bytes)
+            .map_err(|_| NAPMLS_ERR_STORAGE)?
+            .ok_or(NAPMLS_ERR_NOT_FOUND)?;
+
+        // Load from OpenMLS storage
+        let group_id = openmls::prelude::GroupId::from_slice(group_id_bytes);
+        let group = MlsGroup::load(provider.storage(), &group_id)
+            .map_err(|e| {
+                eprintln!("MlsGroup::load failed: {:?}", e);
+                NAPMLS_ERR_STORAGE
+            })?
+            .ok_or(NAPMLS_ERR_NOT_FOUND)?;
+
+        let join_config = MlsGroupJoinConfig::builder()
+            .wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)
+            .use_ratchet_tree_extension(true)
+            .build();
+
+        let handle = Box::new(NapMlsGroupHandle { group, join_config });
+        track_alloc(std::mem::size_of::<NapMlsGroupHandle>());
+        unsafe { *out_group = Box::into_raw(handle); }
+        Ok(NAPMLS_OK)
+    }));
+
+    match result {
+        Ok(code) => code,
+        Err(code) => {
+            unsafe { write_error(out_error, code, "Failed to load group"); }
+            code
+        }
+    }
+}
+
+/// List all groups in the registry. Returns a JSON array.
+/// Format: [{"group_id":"base64","name":"...","qq_group_id":null,"epoch":0},...]
+/// The caller frees via napmls_free_bytes.
+#[no_mangle]
+pub extern "C" fn napmls_list_groups(
+    provider: *const NapMlsProvider,
+    out_groups: *mut NapMlsBytes,
+    out_error: *mut NapMlsError,
+) -> i32 {
+    use base64::Engine;
+
+    let result = ffi_catch(AssertUnwindSafe(|| {
+        if provider.is_null() || out_groups.is_null() {
+            return Err(NAPMLS_ERR_NULL_POINTER);
+        }
+        let provider = unsafe { &*provider };
+
+        let db_path = provider.db_path().ok_or_else(|| {
+            eprintln!("list_groups requires a file-backed provider");
+            NAPMLS_ERR_STORAGE
+        })?;
+        let conn = rusqlite::Connection::open(db_path)
+            .map_err(|_| NAPMLS_ERR_STORAGE)?;
+
+        let records = crate::identity_registry::list_groups(&conn)
+            .map_err(|_| NAPMLS_ERR_STORAGE)?;
+
+        // Build JSON array
+        let mut json = Vec::new();
+        json.push(b'[');
+        let mut first = true;
+        for rec in &records {
+            if !first { json.push(b','); }
+            first = false;
+
+            let gid_b64 = base64::engine::general_purpose::STANDARD.encode(&rec.group_id);
+            let qq = match &rec.qq_group_id {
+                Some(q) => format!("\"{}\"", q),
+                None => "null".to_string(),
+            };
+            let entry = format!(
+                r#"{{"group_id":"{}","name":"{}","qq_group_id":{},"epoch":{}}}"#,
+                gid_b64, rec.name, qq, rec.last_epoch,
+            );
+            json.extend_from_slice(entry.as_bytes());
+        }
+        json.push(b']');
+
+        unsafe { write_bytes(out_groups, json); }
+        Ok(NAPMLS_OK)
+    }));
+
+    match result {
+        Ok(code) => code,
+        Err(code) => {
+            unsafe { write_error(out_error, code, "Failed to list groups"); }
+            code
+        }
     }
 }
 
@@ -1177,6 +1318,7 @@ mod ffi_tests {
         let mut alice_group: *mut NapMlsGroupHandle = ptr::null_mut();
         let rc = napmls_create_group(
             alice_provider, alice_identity,
+            b"AliceGroup\0".as_ptr(), 10,
             &mut alice_group, ptr::null_mut(),
         );
         assert_eq!(rc, NAPMLS_OK, "Failed to create group");
@@ -1375,7 +1517,7 @@ mod ffi_tests {
         napmls_create_identity(provider, b"Alice".as_ptr(), 5, &mut identity, ptr::null_mut());
 
         let mut group: *mut NapMlsGroupHandle = ptr::null_mut();
-        let rc = napmls_create_group(provider, identity, &mut group, ptr::null_mut());
+        let rc = napmls_create_group(provider, identity, b"test\0".as_ptr(), 4, &mut group, ptr::null_mut());
         assert_eq!(rc, NAPMLS_OK);
 
         let mut epoch: u64 = 0;
@@ -1402,7 +1544,7 @@ mod ffi_tests {
         napmls_create_identity(bob_provider, b"Bob".as_ptr(), 3, &mut bob_identity, ptr::null_mut());
 
         let mut alice_group: *mut NapMlsGroupHandle = ptr::null_mut();
-        napmls_create_group(alice_provider, alice_identity, &mut alice_group, ptr::null_mut());
+        napmls_create_group(alice_provider, alice_identity, b"AliceGroup\0".as_ptr(), 10, &mut alice_group, ptr::null_mut());
 
         // Initially 1 member (Alice)
         let mut members = NapMlsBytes { ptr: ptr::null_mut(), len: 0 };
