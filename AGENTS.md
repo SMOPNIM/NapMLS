@@ -42,6 +42,8 @@ dotnet test tests/NapMLS.IntegrationTests/ # requires napmls_ffi.dll (built by c
 - **CommunityToolkit.Mvvm source generators**: `[ObservableProperty]` and `[RelayCommand]` require the containing class to be `partial`.
 - **xunit versions differ**: CoreTest uses 2.9.0, UI.Tests uses 2.9.3. Don't unify unless you verify availability.
 - **FFI multi-KP add_members**: wire format is `[count:4][len1:4][kp1..][len2:4][kp2..]...` (4-byte LE length prefix per KeyPackage). Single KP works (count=1).
+- **FFI create_group now takes group_name**: `napmls_create_group(provider, identity, name_ptr, name_len, out_group, out_error)`. Auto-registers in group registry if file-backed.
+- **Group/identity registries**: stored in `napmls_groups` and `napmls_identities` tables in the same SQLite DB as OpenMLS storage. This enables `napmls_load_group`, `napmls_load_identity`, `napmls_list_groups` across process restarts.
 - **OwnPrivateMessage**: MLS returns null on self-decrypt. Senders display plaintext locally without decrypt path.
 - **Message chunking format**: `[MLS:TYPE:GROUP_HASH:EPOCH:SEQN/TOTAL]base64` where GROUP_HASH = `SHA-256(group_id)[0..8]` hex (16 chars).
 
