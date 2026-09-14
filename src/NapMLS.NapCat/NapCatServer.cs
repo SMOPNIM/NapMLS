@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text.Json;
@@ -8,12 +9,12 @@ namespace NapMLS.NapCat;
 /// <summary>
 /// WebSocket server that accepts NapCat reverse WebSocket connections.
 /// C# is the server; NapCat connects to us.
-/// 
+///
 /// Features:
 /// - Bearer token authentication via header or query parameter
 /// - IP restriction (127.0.0.1 only)
 /// - Single connection policy: reject new, keep existing
-/// - Channel-based event pipeline for async processing
+/// - Echo-based API response matching (P1b fix)
 /// - Heartbeat monitoring with configurable timeout
 /// </summary>
 public sealed class NapCatServer : IAsyncDisposable
@@ -33,6 +34,9 @@ public sealed class NapCatServer : IAsyncDisposable
 
     private readonly object _lock = new();
     private bool _disposed;
+
+    // Echo-based API response matching
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<OneBotResponse>> _pendingRequests = new();
 
     /// <summary>Fires when a OneBot event is received (raw JSON).</summary>
     public event Action<string>? OnEventReceived;
@@ -72,7 +76,7 @@ public sealed class NapCatServer : IAsyncDisposable
         _heartbeatMonitor = HeartbeatMonitorAsync(_cts.Token);
     }
 
-    /// <summary>Send a raw JSON API call to NapCat.</summary>
+    /// <summary>Send a raw JSON API call to NapCat and wait for the response.</summary>
     public async Task<OneBotResponse?> SendApiAsync(string action, JsonElement? parameters, CancellationToken ct = default)
     {
         WebSocket? socket;
@@ -83,18 +87,32 @@ public sealed class NapCatServer : IAsyncDisposable
             return null;
         }
 
+        var echo = Guid.NewGuid().ToString("N")[..8];
         var call = new OneBotApiCall
         {
             Action = action,
             Params = parameters,
-            Echo = Guid.NewGuid().ToString("N")[..8]
+            Echo = echo
         };
 
         var json = JsonSerializer.Serialize(call);
         var bytes = System.Text.Encoding.UTF8.GetBytes(json);
 
-        _logger.LogInformation("Sending API call: {Action}, echo={Echo}, json={Json}",
-            action, call.Echo, json);
+        // Register pending request before sending
+        var tcs = new TaskCompletionSource<OneBotResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingRequests[echo] = tcs;
+
+        // Clean up stale entries after 10s
+        _ = Task.Delay(10_000, ct).ContinueWith(_ =>
+        {
+            if (_pendingRequests.TryRemove(echo, out var stale))
+            {
+                _logger.LogWarning("API call '{Action}' echo={Echo} timed out", action, echo);
+                stale.TrySetResult(new OneBotResponse { RetCode = -1, Msg = "timeout" });
+            }
+        }, ct);
+
+        _logger.LogInformation("Sending API call: {Action}, echo={Echo}", action, echo);
 
         try
         {
@@ -107,16 +125,25 @@ public sealed class NapCatServer : IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send API call '{Action}'", action);
+            _pendingRequests.TryRemove(echo, out _);
             return null;
         }
 
-        // Wait for response with matching echo (simplified: just return null for now)
-        // Full implementation would use a concurrent dictionary of pending calls
-        return null;
+        // Wait for matching response
+        try
+        {
+            return await tcs.Task.WaitAsync(TimeSpan.FromSeconds(11), ct);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("API call '{Action}' echo={Echo} wait timed out", action, echo);
+            _pendingRequests.TryRemove(echo, out _);
+            return null;
+        }
     }
 
     /// <summary>Send a group message.</summary>
-    public async Task SendGroupMessageAsync(long groupId, string text, CancellationToken ct = default)
+    public async Task<bool> SendGroupMessageAsync(long groupId, string text, CancellationToken ct = default)
     {
         var msg = new SendGroupMsgRequest
         {
@@ -125,11 +152,12 @@ public sealed class NapCatServer : IAsyncDisposable
             AutoEscape = false
         };
         var param = JsonSerializer.SerializeToElement(msg);
-        await SendApiAsync("send_group_msg", param, ct);
+        var resp = await SendApiAsync("send_group_msg", param, ct);
+        return resp?.RetCode == 0;
     }
 
     /// <summary>Send a private message.</summary>
-    public async Task SendPrivateMessageAsync(long userId, string text, CancellationToken ct = default)
+    public async Task<bool> SendPrivateMessageAsync(long userId, string text, CancellationToken ct = default)
     {
         var msg = new SendPrivateMsgRequest
         {
@@ -138,7 +166,8 @@ public sealed class NapCatServer : IAsyncDisposable
             AutoEscape = false
         };
         var param = JsonSerializer.SerializeToElement(msg);
-        await SendApiAsync("send_private_msg", param, ct);
+        var resp = await SendApiAsync("send_private_msg", param, ct);
+        return resp?.RetCode == 0;
     }
 
     /// <summary>Notify that a heartbeat was received (call from event handler).</summary>
@@ -185,9 +214,6 @@ public sealed class NapCatServer : IAsyncDisposable
                     var providedToken = context.Request.Headers["Authorization"]?.Replace("Bearer ", "")
                         ?? context.Request.QueryString["access_token"];
 
-                    _logger.LogInformation("Token check — provided: {Provided}, expected: {Expected}, match: {Match}",
-                        providedToken ?? "null", _token, providedToken == _token);
-
                     if (providedToken != _token)
                     {
                         _logger.LogWarning("Rejected connection: invalid token");
@@ -215,7 +241,6 @@ public sealed class NapCatServer : IAsyncDisposable
 
                 lock (_lock)
                 {
-                    // Double-check after accept
                     if (_socket != null && _socket.State == WebSocketState.Open)
                     {
                         _logger.LogWarning("Rejected new connection: race condition");
@@ -229,7 +254,6 @@ public sealed class NapCatServer : IAsyncDisposable
                 _logger.LogInformation("NapCat connected from {IP}", remoteIp);
                 OnConnectionChanged?.Invoke(true);
 
-                // Handle this connection
                 await HandleConnectionAsync(newSocket, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -246,7 +270,7 @@ public sealed class NapCatServer : IAsyncDisposable
 
     private async Task HandleConnectionAsync(WebSocket socket, CancellationToken ct)
     {
-        var buffer = new byte[64 * 1024]; // 64KB receive buffer
+        var buffer = new byte[64 * 1024];
 
         try
         {
@@ -263,7 +287,7 @@ public sealed class NapCatServer : IAsyncDisposable
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
                     var json = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    OnEventReceived?.Invoke(json);
+                    RouteMessage(json);
                 }
             }
         }
@@ -282,6 +306,15 @@ public sealed class NapCatServer : IAsyncDisposable
                 if (_socket == socket) _socket = null;
             }
 
+            // Fail all pending requests on disconnect
+            foreach (var kvp in _pendingRequests)
+            {
+                if (_pendingRequests.TryRemove(kvp.Key, out var tcs))
+                {
+                    tcs.TrySetResult(new OneBotResponse { RetCode = -1, Msg = "disconnected" });
+                }
+            }
+
             try { await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None); }
             catch { /* already closed */ }
 
@@ -290,11 +323,59 @@ public sealed class NapCatServer : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Route incoming JSON: API response (has echo + retcode) → pending request,
+    /// everything else → event handler.
+    /// </summary>
+    private void RouteMessage(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            // Check if this is an API response (has both "echo" and "retcode")
+            if (root.TryGetProperty("echo", out var echoProp) &&
+                root.TryGetProperty("retcode", out var retcodeProp))
+            {
+                var echo = echoProp.GetString();
+                if (echo != null && _pendingRequests.TryRemove(echo, out var tcs))
+                {
+                    var response = new OneBotResponse
+                    {
+                        Status = root.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "",
+                        RetCode = retcodeProp.GetInt32(),
+                        Msg = root.TryGetProperty("msg", out var m) ? m.GetString() : null,
+                        Wording = root.TryGetProperty("wording", out var w) ? w.GetString() : null,
+                        Data = root.TryGetProperty("data", out var d) ? d.Clone() : null
+                    };
+                    _logger.LogInformation("API response: echo={Echo}, retcode={RetCode}, status={Status}",
+                        echo, response.RetCode, response.Status);
+                    tcs.TrySetResult(response);
+                    return;
+                }
+                else if (echo != null)
+                {
+                    _logger.LogWarning("Received API response with unknown echo={Echo}", echo);
+                    return;
+                }
+            }
+
+            // Not an API response → fire event
+            OnEventReceived?.Invoke(json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to route message, treating as event");
+            OnEventReceived?.Invoke(json);
+        }
+    }
+
     private async Task HeartbeatMonitorAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            await Task.Delay(30_000, ct); // Check every 30s
+            await Task.Delay(30_000, ct);
 
             if (IsConnected && (DateTime.UtcNow - _lastHeartbeat) > _heartbeatTimeout)
             {
@@ -338,6 +419,13 @@ public sealed class NapCatServer : IAsyncDisposable
         {
             try { _socket?.Dispose(); } catch { }
             _socket = null;
+        }
+
+        // Fail all pending requests
+        foreach (var kvp in _pendingRequests)
+        {
+            if (_pendingRequests.TryRemove(kvp.Key, out var tcs))
+                tcs.TrySetCanceled();
         }
 
         try { _httpListener?.Stop(); _httpListener?.Close(); } catch { }

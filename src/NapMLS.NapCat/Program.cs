@@ -27,7 +27,7 @@ server.OnConnectionChanged += connected =>
         : "[Server] ❌ NapCat DISCONNECTED");
 };
 
-server.OnEventReceived += json =>
+server.OnEventReceived += async json =>
 {
     var evt = OneBotParser.ParseEvent(json);
     if (evt == null)
@@ -44,8 +44,8 @@ server.OnEventReceived += json =>
         if (evt.MetaEventType == "heartbeat")
         {
             server.RecordHeartbeat();
-            Console.WriteLine("[Server] 💓 Heartbeat");
         }
+        // Suppress heartbeat spam in console — only log lifecycle
         else
         {
             Console.WriteLine($"[Server] Lifecycle: {evt.SubType}");
@@ -55,30 +55,25 @@ server.OnEventReceived += json =>
     {
         var sender = OneBotParser.ParseSender(evt.Sender);
         Console.WriteLine($"[Server] 📨 Group {evt.GroupId} from {sender?.Nickname ?? "?"}({evt.UserId}): {text}");
-        Console.WriteLine($"[Server]    post_type={evt.PostType}, message_type={evt.MessageType}, group_id={evt.GroupId}, user_id={evt.UserId}");
-        Console.WriteLine($"[Server]    message valueKind={evt.Message.ValueKind}, segments={segments.Count}");
 
         if (OneBotParser.IsMlsMessage(text))
         {
             Console.WriteLine($"[Server] 🔒 MLS message detected, length={text.Length}");
         }
 
-        // Echo: send back the same message
         if (evt.GroupId.HasValue)
         {
-            Console.WriteLine($"[Server] 📤 Echoing to group {evt.GroupId}: {text}");
-            _ = server.SendGroupMessageAsync(evt.GroupId.Value, text);
+            var ok = await server.SendGroupMessageAsync(evt.GroupId.Value, text);
+            Console.WriteLine($"[Server] 📤 Echo to group {evt.GroupId}: {(ok ? "✅ sent" : "❌ failed")}");
         }
     }
     else if (evt.MessageType == "private")
     {
         var sender = OneBotParser.ParseSender(evt.Sender);
         Console.WriteLine($"[Server] 📨 Private from {sender?.Nickname ?? "?"}({evt.UserId}): {text}");
-        Console.WriteLine($"[Server]    post_type={evt.PostType}, message_type={evt.MessageType}, user_id={evt.UserId}");
 
-        // Echo private message
-        Console.WriteLine($"[Server] 📤 Echoing to {evt.UserId}: {text}");
-        _ = server.SendPrivateMessageAsync(evt.UserId, text);
+        var ok = await server.SendPrivateMessageAsync(evt.UserId, text);
+        Console.WriteLine($"[Server] 📤 Echo to {evt.UserId}: {(ok ? "✅ sent" : "❌ failed")}");
     }
     else
     {

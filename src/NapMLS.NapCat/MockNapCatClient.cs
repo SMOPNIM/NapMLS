@@ -160,6 +160,28 @@ public sealed class MockNapCatClient : IAsyncDisposable
             CancellationToken.None);
     }
 
+    /// <summary>Send a OneBot API response with matching echo.</summary>
+    private async Task SendApiResponseAsync(string echo, string action)
+    {
+        var response = new
+        {
+            status = "ok",
+            retcode = 0,
+            data = action switch
+            {
+                "send_group_msg" => (object)new { message_id = Random.Shared.NextInt64() },
+                "send_private_msg" => new { message_id = Random.Shared.NextInt64() },
+                _ => new { }
+            },
+            message = "",
+            wording = "",
+            echo,
+            stream = "normal-action"
+        };
+
+        await SendEventAsync(response);
+    }
+
     private async Task ReceiveLoopAsync(CancellationToken ct)
     {
         var buffer = new byte[64 * 1024];
@@ -180,9 +202,24 @@ public sealed class MockNapCatClient : IAsyncDisposable
                     // Try to parse as API call
                     try
                     {
-                        var call = JsonSerializer.Deserialize<OneBotApiCall>(json);
-                        if (call != null)
-                            OnApiCallReceived?.Invoke(call);
+                        using var doc = JsonDocument.Parse(json);
+                        var root = doc.RootElement;
+
+                        // Check if it's an API call (has "action" field)
+                        if (root.TryGetProperty("action", out var actionProp))
+                        {
+                            var call = JsonSerializer.Deserialize<OneBotApiCall>(json);
+                            if (call != null)
+                            {
+                                OnApiCallReceived?.Invoke(call);
+
+                                // Send proper API response with matching echo
+                                if (call.Echo != null)
+                                {
+                                    await SendApiResponseAsync(call.Echo, call.Action);
+                                }
+                            }
+                        }
                     }
                     catch { /* not an API call, ignore */ }
                 }
