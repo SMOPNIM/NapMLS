@@ -94,7 +94,7 @@ public partial class GroupListViewModel : ViewModelBase
             "NapMLS");
         var dbPath = Path.Combine(dir, "napmls.db");
 
-        var wizard = new CreateSubgroupViewModel(_storage, dbPath, Navigation)
+        var wizard = new CreateSubgroupViewModel(_storage, dbPath, Navigation, _mls)
         {
             AvailablePeers = { },
         };
@@ -113,7 +113,7 @@ public partial class GroupListViewModel : ViewModelBase
     [RelayCommand]
     private void OpenGroup(GroupItemViewModel group)
     {
-        var chat = new ChatViewModel(Navigation)
+        var chat = new ChatViewModel(Navigation, _mls)
         {
             GroupName = group.GroupName,
             GroupId = group.GroupId,

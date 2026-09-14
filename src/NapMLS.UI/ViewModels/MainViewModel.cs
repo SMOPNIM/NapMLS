@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using NapMLS.Core;
@@ -7,7 +8,7 @@ using NapMLS.UI.Services;
 namespace NapMLS.UI.ViewModels;
 
 /// <summary>
-/// P1d-2: Main window ViewModel with startup state machine.
+/// P1d-2/5: Main window ViewModel with startup state machine.
 ///
 /// State machine:
 ///   config.json missing → RiskWarning → Setup Step 1
@@ -33,14 +34,18 @@ public partial class MainViewModel : ViewModelBase
         RunStartupStateMachine();
     }
 
+    private string GetAppDir()
+    {
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "NapMLS");
+    }
+
     private SqliteStorage GetStorage()
     {
         if (_storage == null)
         {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "NapMLS");
-            var dbPath = Path.Combine(dir, "napmls.db");
+            var dbPath = Path.Combine(GetAppDir(), "napmls.db");
             _storage = new SqliteStorage(dbPath);
         }
         return _storage;
@@ -50,20 +55,14 @@ public partial class MainViewModel : ViewModelBase
     {
         if (_mls != null) return _mls;
 
-        if (string.IsNullOrEmpty(_config.IdentityFingerprint)) return null;
+        if (string.IsNullOrEmpty(_config.IdentityUsername)) return null;
 
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "NapMLS");
-        var dbPath = Path.Combine(dir, "napmls.db");
+        var dbPath = Path.Combine(GetAppDir(), "napmls.db");
 
-        // Use a fixed key derived from username for P1d-3e
-        // P1d-5: real Argon2id password derivation
-        var keySource = Encoding.UTF8.GetBytes(_config.IdentityUsername ?? "napmls");
-        var key = new byte[32];
-        System.Security.Cryptography.SHA256.HashData(keySource).CopyTo(key, 0);
+        // Derive encryption key from username (P1d-5: real Argon2id deferred)
+        var key = SHA256.HashData(Encoding.UTF8.GetBytes(_config.IdentityUsername));
 
-        _mls = MlsService.Open(dbPath, key);
+        _mls = MlsService.Open(dbPath, key, _config.IdentityUsername);
         return _mls;
     }
 

@@ -18,12 +18,16 @@ public partial class CreateSubgroupViewModel : ViewModelBase
     private readonly SqliteStorage _storage;
     private readonly string _dbPath;
     private readonly NavigationService _navigation;
+    private readonly MlsService? _mls;
 
     [ObservableProperty]
     public partial int CurrentStep { get; set; } = 1;
 
     [ObservableProperty]
     public partial string StepTitle { get; set; } = "选择 QQ 群";
+
+    [ObservableProperty]
+    public partial string? ErrorMessage { get; set; }
 
     // -- Step 1: QQ group selection --
     public ObservableCollection<QqGroupOption> QqGroups { get; } = [];
@@ -53,11 +57,12 @@ public partial class CreateSubgroupViewModel : ViewModelBase
 
     public ObservableCollection<SelectablePeer> SelectedMembers { get; } = [];
 
-    public CreateSubgroupViewModel(SqliteStorage storage, string dbPath, NavigationService navigation)
+    public CreateSubgroupViewModel(SqliteStorage storage, string dbPath, NavigationService navigation, MlsService? mls = null)
     {
         _storage = storage;
         _dbPath = dbPath;
         _navigation = navigation;
+        _mls = mls;
 
         // Mock QQ groups — P1d-5 replace with real NapCat data
         QqGroups.Add(new QqGroupOption { QqGroupId = 10001, Name = "技术交流群" });
@@ -122,11 +127,37 @@ public partial class CreateSubgroupViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(GroupName) || SelectedQqGroup == null)
             return;
 
-        // P1d-5: real FFI call. For now, mock success.
-        await Task.Delay(100);
+        if (_mls == null || !_mls.HasIdentity)
+        {
+            ErrorMessage = "MLS 服务未初始化或身份不存在";
+            return;
+        }
 
-        // Navigate back to group list (refresh will show new group)
-        _navigation.GoBack();
+        try
+        {
+            var groupId = _mls.CreateGroup(GroupName);
+            if (groupId != null)
+            {
+                // Save binding for UI metadata
+                _storage.UpsertGroupBinding(new Core.GroupBinding
+                {
+                    GroupId = Convert.FromHexString(groupId),
+                    QqGroupId = SelectedQqGroup.QqGroupId.ToString(),
+                    DisplayName = GroupName,
+                });
+
+                await Task.Delay(100);
+                _navigation.GoBack();
+            }
+            else
+            {
+                ErrorMessage = "创建群组失败";
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"创建失败: {ex.Message}";
+        }
     }
 
     private async void StartKeyPackageExchange()
