@@ -1,0 +1,68 @@
+=== NapMLS — Real NapCat Test ===
+Waiting for NapCat WebSocket connection on ws://127.0.0.1:18080
+Token: test-token-123
+
+info: NapMLS[0]
+      NapCat WebSocket server listening on ws://127.0.0.1:18080
+[Server] Listening. Press Ctrl+C to quit.
+info: NapMLS[0]
+      Connection from 127.0.0.1 — Headers: [X-Self-ID=2132783562, x-client-role=Universal, Sec-WebSocket-Version=13, Sec-WebSocket-Key=veSV7jlMCeAAVclgl7SYgA==, Connection=Upgrade, Upgrade=websocket, Authorization=Bearer test-token-123, Host=127.0.0.1:18080, User-Agent=OneBot/11], Query: [System.Collections.Specialized.NameValueCollection]
+info: NapMLS[0]
+      Token check — provided: test-token-123, expected: test-token-123, match: True
+info: NapMLS[0]
+      NapCat connected from 127.0.0.1
+[Server] ✅ NapCat CONNECTED
+[Server] Lifecycle: connect
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 📨 Group 838221408 from SMOPNIM(3139659095): hello napmls
+[Server]    post_type=message, message_type=group, group_id=838221408, user_id=3139659095
+[Server]    message valueKind=Array, segments=1
+[Server] 📤 Echoing to group 838221408: hello napmls
+info: NapMLS[0]
+      Sending API call: send_group_msg, echo=37af6109, json={"action":"send_group_msg","params":{"group_id":838221408,"message":[{"type":"text","data":{"text":"hello napmls"},"Text":"hello napmls","AtQq":null}],"auto_escape":false},"echo":"37af6109"}
+[Server] ⚠️ Unknown message_type=
+[Server]    Raw: {"status":"ok","retcode":0,"data":{"message_id":1885179944},"message":"","wording":"","echo":"37af6109","stream":"normal-action"}
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat
+[Server] 📨 Group 838221408 from SMOPNIM(3139659095): [MLS:]hello napmls
+[Server]    post_type=message, message_type=group, group_id=838221408, user_id=3139659095
+[Server]    message valueKind=Array, segments=1
+[Server] 🔒 MLS message detected, length=18
+[Server] 📤 Echoing to group 838221408: [MLS:]hello napmls
+info: NapMLS[0]
+      Sending API call: send_group_msg, echo=4edd5fb7, json={"action":"send_group_msg","params":{"group_id":838221408,"message":[{"type":"text","data":{"text":"[MLS:]hello napmls"},"Text":"[MLS:]hello napmls","AtQq":null}],"auto_escape":false},"echo":"4edd5fb7"}
+[Server] ⚠️ Unknown message_type=
+[Server]    Raw: {"status":"ok","retcode":0,"data":{"message_id":135780826},"message":"","wording":"","echo":"4edd5fb7","stream":"normal-action"}
+[Server] 📨 Private from SMOPNIM(3139659095): hello napmls
+[Server]    post_type=message, message_type=private, user_id=3139659095
+[Server] 📤 Echoing to 3139659095: hello napmls
+info: NapMLS[0]
+      Sending API call: send_private_msg, echo=fb1a506f, json={"action":"send_private_msg","params":{"user_id":3139659095,"message":[{"type":"text","data":{"text":"hello napmls"},"Text":"hello napmls","AtQq":null}],"auto_escape":false},"echo":"fb1a506f"}
+[Server] ⚠️ Unknown message_type=
+[Server]    Raw: {"status":"ok","retcode":0,"data":{"message_id":1455016040},"message":"","wording":"","echo":"fb1a506f","stream":"normal-action"}
+[Server] 💓 Heartbeat
+[Server] 💓 Heartbeat

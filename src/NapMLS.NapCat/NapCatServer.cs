@@ -93,6 +93,9 @@ public sealed class NapCatServer : IAsyncDisposable
         var json = JsonSerializer.Serialize(call);
         var bytes = System.Text.Encoding.UTF8.GetBytes(json);
 
+        _logger.LogInformation("Sending API call: {Action}, echo={Echo}, json={Json}",
+            action, call.Echo, json);
+
         try
         {
             await socket.SendAsync(
@@ -169,11 +172,21 @@ public sealed class NapCatServer : IAsyncDisposable
                     continue;
                 }
 
+                // Log connection details for debugging
+                var headerPairs = context.Request.Headers.AllKeys
+                    .Select(k => $"{k}={context.Request.Headers[k]}");
+                var headers = string.Join(", ", headerPairs);
+                _logger.LogInformation("Connection from {IP} — Headers: [{Headers}], Query: [{Query}]",
+                    remoteIp, headers, context.Request.QueryString.ToString());
+
                 // Verify token
                 if (_token != null)
                 {
                     var providedToken = context.Request.Headers["Authorization"]?.Replace("Bearer ", "")
                         ?? context.Request.QueryString["access_token"];
+
+                    _logger.LogInformation("Token check — provided: {Provided}, expected: {Expected}, match: {Match}",
+                        providedToken ?? "null", _token, providedToken == _token);
 
                     if (providedToken != _token)
                     {
