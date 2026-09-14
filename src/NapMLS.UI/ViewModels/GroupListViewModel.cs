@@ -39,7 +39,27 @@ public partial class GroupListViewModel : ViewModelBase
     [RelayCommand]
     private void CreateGroup()
     {
-        // P1d-3d: open create subgroup wizard
+        var peers = _storage.ListPeers();
+        var selectablePeers = peers.Select(p => new SelectablePeer
+        {
+            QqNumber = p.QqNumber,
+            Nickname = p.Nickname ?? p.QqNumber,
+            SafetyCode = p.SafetyCode,
+        }).ToList();
+
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "NapMLS");
+        var dbPath = Path.Combine(dir, "napmls.db");
+
+        var wizard = new CreateSubgroupViewModel(_storage, dbPath, Navigation)
+        {
+            AvailablePeers = { },
+        };
+        foreach (var sp in selectablePeers)
+            wizard.AvailablePeers.Add(sp);
+
+        Navigation.NavigateTo(wizard);
     }
 
     [RelayCommand]
@@ -48,7 +68,6 @@ public partial class GroupListViewModel : ViewModelBase
         Navigation.NavigateTo(new TrustManagerViewModel(_storage, _fingerprint));
     }
 
-    // Navigation reference — set by MainViewModel or via constructor
     public NavigationService Navigation { get; set; } = null!;
 }
 

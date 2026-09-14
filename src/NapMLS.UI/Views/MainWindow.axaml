@@ -30,6 +30,9 @@
             <DataTemplate DataType="vm:TrustManagerViewModel">
                 <views:TrustManagerView />
             </DataTemplate>
+            <DataTemplate DataType="vm:CreateSubgroupViewModel">
+                <views:CreateSubgroupView />
+            </DataTemplate>
             <DataTemplate DataType="vm:ChatViewModel">
                 <views:ChatView />
             </DataTemplate>

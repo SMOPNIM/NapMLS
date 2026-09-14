@@ -1,0 +1,164 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NapMLS.UI.ViewModels"
+             x:Class="NapMLS.UI.Views.CreateSubgroupView"
+             x:DataType="vm:CreateSubgroupViewModel">
+
+    <DockPanel>
+        <!-- Header -->
+        <DockPanel DockPanel.Dock="Top" Margin="16,16,16,8">
+            <TextBlock Text="新建加密子群"
+                       FontSize="24" FontWeight="Bold"
+                       VerticalAlignment="Center" />
+            <Button Content="取消"
+                    Command="{Binding CancelCommand}"
+                    HorizontalAlignment="Right"
+                    MinWidth="60" Height="32" />
+        </DockPanel>
+
+        <!-- Step indicator -->
+        <Border DockPanel.Dock="Top" Margin="16,0,16,12" Padding="16,8"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="8">
+            <StackPanel Spacing="8">
+                <TextBlock FontSize="14" FontWeight="SemiBold">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="步骤 {0}/4 — {1}">
+                            <Binding Path="CurrentStep" />
+                            <Binding Path="StepTitle" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <ProgressBar Value="{Binding CurrentStep}" Minimum="1" Maximum="4"
+                             Height="4" />
+            </StackPanel>
+        </Border>
+
+        <!-- Step content -->
+        <Panel Margin="16">
+
+            <!-- Step 1: Select QQ group -->
+            <StackPanel IsVisible="{Binding CurrentStep, Converter={x:Static vm:IntToBoolConverter.Instance}}"
+                        Tag="1" Spacing="12"
+                        Margin="16">
+                <TextBlock Text="选择要关联的 QQ 群:" FontSize="16" />
+                <ItemsControl ItemsSource="{Binding QqGroups}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:QqGroupOption">
+                            <Button Margin="0,4" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,8"
+                                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                    Tag="{Binding}"
+                                    Click="OnQqGroupClick">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Text="{Binding Name}" FontSize="15" />
+                                    <TextBlock Text="{Binding QqGroupId}"
+                                               FontSize="13" Foreground="Gray"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <!-- Step 2: Select members -->
+            <StackPanel IsVisible="{Binding CurrentStep, Converter={x:Static vm:IntToBoolConverter2.Instance}}"
+                        Tag="2" Spacing="12"
+                        Margin="16">
+                <TextBlock Text="选择要加入子群的可信成员:" FontSize="16" />
+                <ItemsControl ItemsSource="{Binding AvailablePeers}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SelectablePeer">
+                            <CheckBox IsChecked="{Binding IsSelected}" Margin="0,4">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Text="{Binding Nickname}" FontSize="15" />
+                                    <TextBlock Text="{Binding QqNumber}"
+                                               FontSize="13" Foreground="Gray"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding SafetyCode}"
+                                               FontSize="12" FontFamily="Consolas,monospace"
+                                               Foreground="Gray" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </CheckBox>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <!-- Step 3: KeyPackage exchange -->
+            <StackPanel IsVisible="{Binding CurrentStep, Converter={x:Static vm:IntToBoolConverter3.Instance}}"
+                        Tag="3" Spacing="12"
+                        Margin="16"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                <TextBlock Text="密钥交换" FontSize="18" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <ProgressBar Value="{Binding ExchangeProgress}"
+                             Maximum="{Binding ExchangeTotal}"
+                             Height="6" Width="300"
+                             HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding ExchangeStatus}"
+                           FontSize="14" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <!-- Step 4: Confirm -->
+            <StackPanel IsVisible="{Binding CurrentStep, Converter={x:Static vm:IntToBoolConverter4.Instance}}"
+                        Tag="4" Spacing="12"
+                        Margin="16">
+                <TextBlock Text="确认创建" FontSize="18" FontWeight="SemiBold" />
+                <StackPanel Spacing="8" Margin="0,8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="子群名称:" FontSize="14" FontWeight="SemiBold" Width="80" />
+                        <TextBox Text="{Binding GroupName}" FontSize="14" MinWidth="300" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="关联 QQ 群:" FontSize="14" FontWeight="SemiBold" Width="80" />
+                        <TextBlock Text="{Binding SelectedQqGroup.Name}" FontSize="14" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="成员人数:" FontSize="14" FontWeight="SemiBold" Width="80" />
+                        <TextBlock Text="{Binding SelectedMembers.Count}" FontSize="14" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Text="成员列表:" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,0" />
+                <ItemsControl ItemsSource="{Binding SelectedMembers}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SelectablePeer">
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2">
+                                <TextBlock Text="{Binding Nickname}" FontSize="14" />
+                                <TextBlock Text="{Binding QqNumber}" FontSize="13" Foreground="Gray" />
+                                <Border Background="#4CAF50" CornerRadius="4" Padding="6,1"
+                                        IsVisible="{Binding KeyPackageReady}">
+                                    <TextBlock Text="密钥就绪" FontSize="11" Foreground="White" />
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+        </Panel>
+
+        <!-- Navigation buttons -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="8" Margin="16,8,16,16">
+            <Button Content="上一步"
+                    Command="{Binding PrevStepCommand}"
+                    IsVisible="{Binding CurrentStep, Converter={x:Static vm:GreaterThanOneConverter.Instance}}"
+                    MinWidth="80" Height="36" />
+            <Button Content="下一步"
+                    Command="{Binding NextStepCommand}"
+                    IsVisible="{Binding CurrentStep, Converter={x:Static vm:LessThanFourConverter.Instance}}"
+                    MinWidth="80" Height="36" />
+            <Button Content="创建子群"
+                    Command="{Binding CreateGroupCommand}"
+                    IsVisible="{Binding CurrentStep, Converter={x:Static vm:IsFourConverter.Instance}}"
+                    MinWidth="100" Height="36"
+                    Background="#4CAF50" Foreground="White" />
+        </StackPanel>
+
+    </DockPanel>
+
+</UserControl>
