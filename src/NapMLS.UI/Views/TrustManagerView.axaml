@@ -1,0 +1,113 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:NapMLS.UI.ViewModels"
+             x:Class="NapMLS.UI.Views.TrustManagerView"
+             x:DataType="vm:TrustManagerViewModel">
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="16" MaxWidth="500" HorizontalAlignment="Center" Margin="32">
+
+            <TextBlock Text="信任成员管理"
+                       FontSize="24" FontWeight="Bold"
+                       HorizontalAlignment="Center" />
+
+            <!-- My Safety Code -->
+            <Border Background="#E8F5E9" CornerRadius="8" Padding="16">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="我的安全码" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding SafetyCode}"
+                               FontSize="20" FontWeight="Bold"
+                               FontFamily="Consolas,monospace"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="请通过电话/线下/其他可信渠道告知对方"
+                               FontSize="12" Foreground="Gray"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <Separator />
+
+            <!-- Add Peer Form -->
+            <TextBlock Text="添加信任成员"
+                       FontSize="18" FontWeight="SemiBold" />
+
+            <StackPanel Spacing="8">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="QQ 号" FontSize="14" />
+                    <TextBox Text="{Binding NewQqNumber}" FontSize="14"
+                             PlaceholderText="对方 QQ 号" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="安全码" FontSize="14" />
+                    <TextBox Text="{Binding NewSafetyCode}" FontSize="14"
+                             FontFamily="Consolas,monospace"
+                             PlaceholderText="NAPMLS-XXXX-XXXX-XXXX-XXXX" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="昵称（可选）" FontSize="14" />
+                    <TextBox Text="{Binding NewNickname}" FontSize="14"
+                             PlaceholderText="方便记忆的名字" />
+                </StackPanel>
+
+                <TextBlock Text="{Binding AddErrorMessage}"
+                           FontSize="13" Foreground="Red"
+                           IsVisible="{Binding AddErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                <Button Content="添加"
+                        Command="{Binding AddPeerCommand}"
+                        MinWidth="80" Height="36"
+                        HorizontalAlignment="Left" />
+            </StackPanel>
+
+            <Separator />
+
+            <!-- Peer List -->
+            <TextBlock Text="已添加成员"
+                       FontSize="18" FontWeight="SemiBold" />
+
+            <ItemsControl ItemsSource="{Binding Peers}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PeerViewModel">
+                        <Border CornerRadius="8" Padding="12,10" Margin="0,4"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8"
+                                            VerticalAlignment="Center">
+                                    <Border Background="{Binding StatusColor}"
+                                            CornerRadius="4" Padding="8,2">
+                                        <TextBlock Text="{Binding StatusText}"
+                                                   FontSize="11" Foreground="White" />
+                                    </Border>
+                                    <Button Content="mock KP"
+                                            Command="{Binding $parent[ItemsControl].((vm:TrustManagerViewModel)DataContext).MockReceiveKeyPackageCommand}"
+                                            CommandParameter="{Binding QqNumber}"
+                                            FontSize="11" Height="24"
+                                            IsVisible="{Binding !IsVerified}" />
+                                    <Button Content="删除"
+                                            Command="{Binding $parent[ItemsControl].((vm:TrustManagerViewModel)DataContext).RemovePeerCommand}"
+                                            CommandParameter="{Binding QqNumber}"
+                                            FontSize="11" Height="24"
+                                            Foreground="Red" />
+                                </StackPanel>
+
+                                <StackPanel Spacing="2">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding Nickname}" FontSize="15" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding QqNumber}" FontSize="13" Foreground="Gray" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding SafetyCode}"
+                                               FontSize="12" FontFamily="Consolas,monospace"
+                                               Foreground="Gray" />
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+        </StackPanel>
+    </ScrollViewer>
+
+</UserControl>

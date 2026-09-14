@@ -1,17 +1,21 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NapMLS.Core;
 using NapMLS.UI.Models;
+using NapMLS.UI.Services;
 
 namespace NapMLS.UI.ViewModels;
 
 /// <summary>
-/// P1d-3: Group list page.
-/// Shows MLS groups bound to QQ groups.
+/// P1d-3e: Group list page with real data.
+/// Shows MLS groups from Rust side + C# binding metadata.
 /// </summary>
 public partial class GroupListViewModel : ViewModelBase
 {
     private readonly AppConfig _config;
+    private readonly SqliteStorage _storage;
+    private readonly byte[] _fingerprint;
 
     [ObservableProperty]
     public partial bool IsConnected { get; set; }
@@ -24,17 +28,28 @@ public partial class GroupListViewModel : ViewModelBase
 
     public ObservableCollection<GroupItemViewModel> Groups { get; } = [];
 
-    public GroupListViewModel(AppConfig config)
+    public GroupListViewModel(AppConfig config, SqliteStorage storage, byte[] fingerprint)
     {
         _config = config;
+        _storage = storage;
+        _fingerprint = fingerprint;
         WelcomeText = $"欢迎, {config.IdentityUsername ?? "用户"}";
     }
 
     [RelayCommand]
     private void CreateGroup()
     {
-        // P1d-3: open create subgroup dialog
+        // P1d-3d: open create subgroup wizard
     }
+
+    [RelayCommand]
+    private void OpenTrustManager()
+    {
+        Navigation.NavigateTo(new TrustManagerViewModel(_storage, _fingerprint));
+    }
+
+    // Navigation reference — set by MainViewModel or via constructor
+    public NavigationService Navigation { get; set; } = null!;
 }
 
 /// <summary>

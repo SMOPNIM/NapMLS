@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using NapMLS.Core;
 using NapMLS.UI.Models;
 using NapMLS.UI.Services;
 
@@ -22,6 +23,7 @@ public partial class MainViewModel : ViewModelBase
     public partial string WindowTitle { get; set; } = "NapMLS - 加密子群";
 
     private AppConfig _config = new();
+    private SqliteStorage? _storage;
 
     public MainViewModel()
     {
@@ -29,22 +31,32 @@ public partial class MainViewModel : ViewModelBase
         RunStartupStateMachine();
     }
 
+    private SqliteStorage GetStorage()
+    {
+        if (_storage == null)
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "NapMLS");
+            var dbPath = Path.Combine(dir, "napmls.db");
+            _storage = new SqliteStorage(dbPath);
+        }
+        return _storage;
+    }
+
     private void RunStartupStateMachine()
     {
         if (!_config.RiskWarningAccepted)
         {
-            // Never accepted risk → show risk warning first
             Navigation.NavigateTo(new RiskWarningViewModel(OnRiskAccepted));
         }
         else if (string.IsNullOrEmpty(_config.IdentitySafetyCode))
         {
-            // Accepted but no identity yet → setup step 2
             Navigation.NavigateTo(new SetupViewModel(_config, OnSetupCompleted));
         }
         else
         {
-            // Everything ready → go to groups
-            Navigation.NavigateTo(new GroupListViewModel(_config));
+            NavigateToGroups();
         }
     }
 
@@ -60,6 +72,17 @@ public partial class MainViewModel : ViewModelBase
     {
         _config = config;
         Navigation.Clear();
-        Navigation.NavigateTo(new GroupListViewModel(_config));
+        NavigateToGroups();
+    }
+
+    private void NavigateToGroups()
+    {
+        var storage = GetStorage();
+        var fp = Convert.FromHexString(_config.IdentityFingerprint!);
+        var vm = new GroupListViewModel(_config, storage, fp)
+        {
+            Navigation = Navigation,
+        };
+        Navigation.NavigateTo(vm);
     }
 }

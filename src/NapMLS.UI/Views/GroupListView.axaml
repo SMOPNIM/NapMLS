@@ -10,10 +10,15 @@
             <TextBlock Text="加密子群"
                        FontSize="24" FontWeight="Bold"
                        VerticalAlignment="Center" />
-            <Button Content="+ 新建"
-                    Command="{Binding CreateGroupCommand}"
-                    HorizontalAlignment="Right"
-                    MinWidth="80" Height="36" />
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8"
+                        HorizontalAlignment="Right">
+                <Button Content="信任管理"
+                        Command="{Binding OpenTrustManagerCommand}"
+                        MinWidth="80" Height="36" />
+                <Button Content="+ 新建"
+                        Command="{Binding CreateGroupCommand}"
+                        MinWidth="80" Height="36" />
+            </StackPanel>
         </DockPanel>
 
         <!-- Connection status -->
