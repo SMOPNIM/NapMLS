@@ -1,3 +1,4 @@
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using NapMLS.Core;
 using NapMLS.UI.Models;
@@ -24,6 +25,7 @@ public partial class MainViewModel : ViewModelBase
 
     private AppConfig _config = new();
     private SqliteStorage? _storage;
+    private MlsService? _mls;
 
     public MainViewModel()
     {
@@ -42,6 +44,27 @@ public partial class MainViewModel : ViewModelBase
             _storage = new SqliteStorage(dbPath);
         }
         return _storage;
+    }
+
+    private MlsService? GetMls()
+    {
+        if (_mls != null) return _mls;
+
+        if (string.IsNullOrEmpty(_config.IdentityFingerprint)) return null;
+
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "NapMLS");
+        var dbPath = Path.Combine(dir, "napmls.db");
+
+        // Use a fixed key derived from username for P1d-3e
+        // P1d-5: real Argon2id password derivation
+        var keySource = Encoding.UTF8.GetBytes(_config.IdentityUsername ?? "napmls");
+        var key = new byte[32];
+        System.Security.Cryptography.SHA256.HashData(keySource).CopyTo(key, 0);
+
+        _mls = MlsService.Open(dbPath, key);
+        return _mls;
     }
 
     private void RunStartupStateMachine()
@@ -79,7 +102,8 @@ public partial class MainViewModel : ViewModelBase
     {
         var storage = GetStorage();
         var fp = Convert.FromHexString(_config.IdentityFingerprint!);
-        var vm = new GroupListViewModel(_config, storage, fp)
+        var mls = GetMls();
+        var vm = new GroupListViewModel(_config, storage, fp, mls)
         {
             Navigation = Navigation,
         };

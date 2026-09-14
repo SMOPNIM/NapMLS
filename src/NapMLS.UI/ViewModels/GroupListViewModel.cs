@@ -16,6 +16,7 @@ public partial class GroupListViewModel : ViewModelBase
     private readonly AppConfig _config;
     private readonly SqliteStorage _storage;
     private readonly byte[] _fingerprint;
+    private readonly MlsService? _mls;
 
     [ObservableProperty]
     public partial bool IsConnected { get; set; }
@@ -28,12 +29,51 @@ public partial class GroupListViewModel : ViewModelBase
 
     public ObservableCollection<GroupItemViewModel> Groups { get; } = [];
 
-    public GroupListViewModel(AppConfig config, SqliteStorage storage, byte[] fingerprint)
+    public GroupListViewModel(AppConfig config, SqliteStorage storage, byte[] fingerprint, MlsService? mls)
     {
         _config = config;
         _storage = storage;
         _fingerprint = fingerprint;
+        _mls = mls;
         WelcomeText = $"欢迎, {config.IdentityUsername ?? "用户"}";
+        LoadGroups();
+    }
+
+    private void LoadGroups()
+    {
+        Groups.Clear();
+
+        if (_mls == null) return;
+
+        var mlsGroups = _mls.ListGroups();
+        foreach (var g in mlsGroups)
+        {
+            var binding = _storage.GetGroupBinding(Convert.FromHexString(g.group_id));
+            long qqGroupId = 0;
+            if (binding != null && long.TryParse(binding.QqGroupId, out var parsed))
+                qqGroupId = parsed;
+
+            Groups.Add(new GroupItemViewModel
+            {
+                GroupName = g.name,
+                QqGroupId = qqGroupId,
+                MemberCount = 1,
+                SyncState = "已同步",
+                LastActivity = $"Epoch {g.epoch}",
+            });
+        }
+
+        if (Groups.Count == 0)
+        {
+            Groups.Add(new GroupItemViewModel
+            {
+                GroupName = "暂无子群，点击 + 新建 创建",
+                QqGroupId = 0,
+                MemberCount = 0,
+                SyncState = "",
+                LastActivity = "",
+            });
+        }
     }
 
     [RelayCommand]
