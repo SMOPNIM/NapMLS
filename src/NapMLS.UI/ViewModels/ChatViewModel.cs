@@ -1,20 +1,29 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NapMLS.UI.Services;
 
 namespace NapMLS.UI.ViewModels;
 
 /// <summary>
 /// P1d-4: Chat page.
-/// Shows messages for a single MLS group.
+/// Shows messages for a single MLS group with encryption status.
 /// </summary>
 public partial class ChatViewModel : ViewModelBase
 {
+    private readonly NavigationService _navigation;
+
     [ObservableProperty]
     public partial string GroupName { get; set; } = "";
 
     [ObservableProperty]
-    public partial string? GroupHash { get; set; }
+    public partial string? GroupId { get; set; }
+
+    [ObservableProperty]
+    public partial int Epoch { get; set; }
+
+    [ObservableProperty]
+    public partial string EncryptionStatus { get; set; } = "MLS 加密中";
 
     [ObservableProperty]
     public partial string InputText { get; set; } = "";
@@ -22,7 +31,21 @@ public partial class ChatViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool IsSending { get; set; }
 
+    [ObservableProperty]
+    public partial string? LastMessagePreview { get; set; }
+
     public ObservableCollection<MessageViewModel> Messages { get; } = [];
+
+    public ChatViewModel(NavigationService navigation)
+    {
+        _navigation = navigation;
+    }
+
+    [RelayCommand]
+    private void GoBack()
+    {
+        _navigation.GoBack();
+    }
 
     [RelayCommand]
     private void SendMessage()
@@ -35,8 +58,13 @@ public partial class ChatViewModel : ViewModelBase
             Text = InputText,
             Timestamp = DateTime.Now,
             IsOwn = true,
-            Status = "已发送"
+            Status = "已加密发送",
+            IsEncrypted = true,
         });
+
+        LastMessagePreview = InputText.Length > 30
+            ? InputText[..30] + "..."
+            : InputText;
 
         InputText = "";
     }

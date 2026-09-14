@@ -34,26 +34,32 @@
         <ItemsControl ItemsSource="{Binding Groups}" Margin="16,0,16,16">
             <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:GroupItemViewModel">
-                    <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                            CornerRadius="8" Padding="16,12" Margin="0,4">
-                        <DockPanel>
-                            <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Spacing="4">
-                                <TextBlock Text="{Binding SyncState}" FontSize="12" Foreground="Gray" />
-                                <TextBlock Text="{Binding LastActivity}" FontSize="11" Foreground="Gray" />
-                            </StackPanel>
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="{Binding GroupName}" FontSize="16" FontWeight="SemiBold" />
-                                <TextBlock FontSize="13" Foreground="Gray">
-                                    <TextBlock.Text>
-                                        <MultiBinding StringFormat="{}{0} 位成员 · QQ群 {1}">
-                                            <Binding Path="MemberCount" />
-                                            <Binding Path="QqGroupId" />
-                                        </MultiBinding>
-                                    </TextBlock.Text>
-                                </TextBlock>
-                            </StackPanel>
-                        </DockPanel>
-                    </Border>
+                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                            Padding="0" Margin="0,4"
+                            Background="Transparent" BorderThickness="0"
+                            Tag="{Binding}"
+                            Click="OnGroupClick">
+                        <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                CornerRadius="8" Padding="16,12">
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Spacing="4">
+                                    <TextBlock Text="{Binding SyncState}" FontSize="12" Foreground="Gray" />
+                                    <TextBlock Text="{Binding LastActivity}" FontSize="11" Foreground="Gray" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding GroupName}" FontSize="16" FontWeight="SemiBold" />
+                                    <TextBlock FontSize="13" Foreground="Gray">
+                                        <TextBlock.Text>
+                                            <MultiBinding StringFormat="{}{0} 位成员 · QQ群 {1}">
+                                                <Binding Path="MemberCount" />
+                                                <Binding Path="QqGroupId" />
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </Button>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>

@@ -9,10 +9,30 @@
         <Border DockPanel.Dock="Top" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
                 Padding="16,12" BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                 BorderThickness="0,0,0,1">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="{Binding GroupName}" FontSize="18" FontWeight="Bold"
-                           VerticalAlignment="Center" />
-            </StackPanel>
+            <DockPanel>
+                <Button Content="← 返回"
+                        Command="{Binding GoBackCommand}"
+                        DockPanel.Dock="Left"
+                        MinWidth="60" Height="32"
+                        VerticalAlignment="Center" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8"
+                            HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Border Background="#E8F5E9" CornerRadius="4" Padding="6,2">
+                        <TextBlock Text="{Binding EncryptionStatus}" FontSize="11" Foreground="#2E7D32" />
+                    </Border>
+                    <TextBlock FontSize="12" Foreground="Gray" VerticalAlignment="Center">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="Epoch {0}">
+                                <Binding Path="Epoch" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="12"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding GroupName}" FontSize="18" FontWeight="Bold" />
+                </StackPanel>
+            </DockPanel>
         </Border>
 
         <!-- Input bar -->
@@ -46,6 +66,8 @@
                                            FontSize="11" Foreground="Gray" />
                                 <TextBlock Text="{Binding Status}" FontSize="11" Foreground="Gray"
                                            IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <TextBlock Text="🔒" FontSize="11"
+                                           IsVisible="{Binding IsEncrypted}" />
                             </StackPanel>
                             <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="14" />
                         </StackPanel>

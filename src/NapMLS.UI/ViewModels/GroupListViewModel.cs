@@ -56,8 +56,10 @@ public partial class GroupListViewModel : ViewModelBase
             Groups.Add(new GroupItemViewModel
             {
                 GroupName = g.name,
+                GroupId = g.group_id,
                 QqGroupId = qqGroupId,
                 MemberCount = 1,
+                Epoch = g.epoch,
                 SyncState = "已同步",
                 LastActivity = $"Epoch {g.epoch}",
             });
@@ -108,6 +110,18 @@ public partial class GroupListViewModel : ViewModelBase
         Navigation.NavigateTo(new TrustManagerViewModel(_storage, _fingerprint));
     }
 
+    [RelayCommand]
+    private void OpenGroup(GroupItemViewModel group)
+    {
+        var chat = new ChatViewModel(Navigation)
+        {
+            GroupName = group.GroupName,
+            GroupId = group.GroupId,
+            Epoch = group.Epoch,
+        };
+        Navigation.NavigateTo(chat);
+    }
+
     public NavigationService Navigation { get; set; } = null!;
 }
 
@@ -120,10 +134,16 @@ public partial class GroupItemViewModel : ViewModelBase
     public partial string GroupName { get; set; } = "";
 
     [ObservableProperty]
+    public partial string GroupId { get; set; } = "";
+
+    [ObservableProperty]
     public partial long QqGroupId { get; set; }
 
     [ObservableProperty]
     public partial int MemberCount { get; set; }
+
+    [ObservableProperty]
+    public partial int Epoch { get; set; }
 
     [ObservableProperty]
     public partial string SyncState { get; set; } = "已同步";
