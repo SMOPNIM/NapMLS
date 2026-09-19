@@ -162,10 +162,12 @@
             <Button Content="上一步"
                     Command="{Binding PrevStepCommand}"
                     IsVisible="{Binding CurrentStep, Converter={x:Static vm:GreaterThanOneConverter.Instance}}"
+                    IsEnabled="{Binding !IsExchangeRunning}"
                     MinWidth="80" Height="36" />
             <Button Content="下一步"
                     Command="{Binding NextStepCommand}"
                     IsVisible="{Binding CurrentStep, Converter={x:Static vm:LessThanFourConverter.Instance}}"
+                    IsEnabled="{Binding !IsExchangeRunning}"
                     MinWidth="80" Height="36" />
             <Button Content="创建子群"
                     Command="{Binding CreateGroupCommand}"
