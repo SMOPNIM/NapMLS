@@ -251,6 +251,84 @@ public sealed class MlsService : IDisposable
     /// <summary>Last error from Open(). NAPMLS_ERR_KEY_MISMATCH = wrong password.</summary>
     public static int LastOpenError { get; private set; }
 
+    /// <summary>Generate a KeyPackage for this identity. Returns serialized bytes.</summary>
+    public byte[]? GenerateKeyPackage()
+    {
+        if (_disposed || _provider == IntPtr.Zero || _identity == IntPtr.Zero) return null;
+
+        var error = new NapMlsNative.NapMlsError();
+        var bytes = new NapMlsNative.NapMlsBytes();
+        unsafe
+        {
+            var rc = NapMlsNative.napmls_generate_key_package(_provider, _identity, &bytes, &error);
+            if (rc != NapMlsNative.NAPMLS_OK)
+            {
+                NapMlsNative.napmls_free_error(error);
+                return null;
+            }
+        }
+
+        try
+        {
+            var result = new byte[bytes.len];
+            Marshal.Copy(bytes.ptr, result, 0, bytes.len);
+            return result;
+        }
+        finally
+        {
+            NapMlsNative.napmls_free_bytes(bytes);
+        }
+    }
+
+    /// <summary>Add members to a group by their KeyPackage bytes. Returns Welcome bytes on success.</summary>
+    public byte[]? AddMembers(string groupIdHex, byte[][] keyPackages)
+    {
+        if (_disposed || _provider == IntPtr.Zero || _identity == IntPtr.Zero) return null;
+        if (!_groups.TryGetValue(groupIdHex, out var group)) return null;
+
+        // Wire format: [count:4][len1:4][kp1..][len2:4][kp2..]...
+        var totalLen = 4;
+        foreach (var kp in keyPackages)
+            totalLen += 4 + kp.Length;
+
+        var allData = new byte[totalLen];
+        var offset = 0;
+        BitConverter.GetBytes((uint)keyPackages.Length).CopyTo(allData, offset); offset += 4;
+        foreach (var kp in keyPackages)
+        {
+            BitConverter.GetBytes((uint)kp.Length).CopyTo(allData, offset); offset += 4;
+            kp.CopyTo(allData, offset); offset += kp.Length;
+        }
+
+        var error = new NapMlsNative.NapMlsError();
+        var outWelcome = new NapMlsNative.NapMlsBytes();
+        unsafe
+        {
+            fixed (byte* pData = allData)
+            {
+                var rc = NapMlsNative.napmls_add_members(
+                    _provider, group, _identity,
+                    pData, allData.Length, &outWelcome, &error);
+                if (rc != NapMlsNative.NAPMLS_OK)
+                {
+                    NapMlsNative.napmls_free_error(error);
+                    return null;
+                }
+            }
+        }
+
+        try
+        {
+            var result = new byte[outWelcome.len];
+            Marshal.Copy(outWelcome.ptr, result, 0, outWelcome.len);
+            return result;
+        }
+        finally
+        {
+            NapMlsNative.napmls_free_bytes(outWelcome);
+        }
+    }
+
     public byte[]? Encrypt(string groupIdHex, string plaintext)
     {
         if (_disposed || _provider == IntPtr.Zero || _identity == IntPtr.Zero) return null;

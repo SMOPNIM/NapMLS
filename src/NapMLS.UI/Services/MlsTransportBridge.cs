@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text.Json;
 using NapMLS.Core;
 using NapMLS.NapCat;
 
@@ -8,7 +7,8 @@ namespace NapMLS.UI.Services;
 /// <summary>
 /// Bridges NapCatServer (QQ transport) ↔ MlsService (MLS crypto) ↔ MessageBus (UI events).
 ///
-/// Inbound:  NapCat WS event → [MLS:MSG] parse → MlsService.Decrypt → MessageBus.Publish
+/// Inbound group:  NapCat WS → [MLS:MSG] parse → MlsService.Decrypt → MessageBus.Publish
+/// Inbound private: NapCat WS → [MLS:WELCOME] parse → MlsService.JoinGroup → HashMap update
 /// Outbound: ChatViewModel → MlsService.Encrypt → [MLS:MSG] format → NapCatServer.SendGroupMsg
 /// </summary>
 public sealed class MlsTransportBridge : IDisposable
@@ -25,6 +25,9 @@ public sealed class MlsTransportBridge : IDisposable
     public bool IsConnected => _server.IsConnected;
     public event Action<bool>? OnConnectionChanged;
 
+    /// <summary>Fires when a group is joined via Welcome (for UI to refresh group list).</summary>
+    public event Action<string>? OnGroupJoined;
+
     public MlsTransportBridge(NapCatServer server, MlsService mls, MessageBus bus, SqliteStorage storage)
     {
         _server = server;
@@ -38,7 +41,6 @@ public sealed class MlsTransportBridge : IDisposable
         RebuildHashMap();
     }
 
-    /// <summary>Rebuild GROUP_HASH → group mapping from current MlsService state.</summary>
     public void RebuildHashMap()
     {
         _hashMap.Clear();
@@ -56,7 +58,6 @@ public sealed class MlsTransportBridge : IDisposable
         }
     }
 
-    /// <summary>Register a newly created group in the hash map.</summary>
     public void RegisterGroup(string groupIdHex, long qqGroupId)
     {
         var groupIdBytes = Convert.FromHexString(groupIdHex);
@@ -64,14 +65,14 @@ public sealed class MlsTransportBridge : IDisposable
         _hashMap[hash] = (groupIdHex, qqGroupId);
     }
 
-    // ── Inbound: NapCat → MLS decrypt → MessageBus ──
+    // ── Inbound routing ──
 
     private void OnNapCatEvent(string json)
     {
         try
         {
             var evt = OneBotParser.ParseEvent(json);
-            if (evt == null || evt.PostType != "message" || evt.MessageType != "group")
+            if (evt == null || evt.PostType != "message")
                 return;
 
             var segments = OneBotParser.ParseMessage(evt.Message);
@@ -80,7 +81,14 @@ public sealed class MlsTransportBridge : IDisposable
             if (!OneBotParser.IsMlsMessage(text))
                 return;
 
-            HandleInboundMlsMessage(text, evt);
+            if (evt.MessageType == "group")
+            {
+                HandleInboundGroupMessage(text, evt);
+            }
+            else if (evt.MessageType == "private")
+            {
+                HandleInboundPrivateMessage(text, evt);
+            }
         }
         catch (Exception ex)
         {
@@ -88,13 +96,12 @@ public sealed class MlsTransportBridge : IDisposable
         }
     }
 
-    private void HandleInboundMlsMessage(string text, OneBotEvent evt)
+    private void HandleInboundGroupMessage(string text, OneBotEvent evt)
     {
-        // Try parse single chunk (most common case for small messages)
         var result = _chunker.TryParse(text, 0);
         if (result == null)
         {
-            Console.WriteLine($"[Bridge] Incomplete MLS message, waiting for more chunks");
+            Console.WriteLine("[Bridge] Incomplete MLS message, waiting for chunks");
             return;
         }
 
@@ -106,16 +113,6 @@ public sealed class MlsTransportBridge : IDisposable
             return;
         }
 
-        // Self-decrypt check: skip if sender is ourselves
-        var sender = evt.UserId;
-        if (sender.ToString() == _mls.GetUsername())
-        {
-            // Own message: display plaintext locally (MLS returns null on self-decrypt)
-            // The ChatViewModel handles this in SendMessage — skip inbound echo
-            Console.WriteLine($"[Bridge] Own message echo, skipping decrypt");
-            return;
-        }
-
         // Decrypt
         var plaintext = _mls.Decrypt(groupInfo.GroupIdHex, result.Ciphertext);
         if (plaintext == null)
@@ -124,24 +121,66 @@ public sealed class MlsTransportBridge : IDisposable
             return;
         }
 
-        // Resolve sender name from QQ
         var senderInfo = OneBotParser.ParseSender(evt.Sender);
-        var senderName = senderInfo?.Nickname ?? sender.ToString();
+        var senderName = senderInfo?.Nickname ?? evt.UserId.ToString();
 
-        Console.WriteLine($"[Bridge] Decrypted message from {senderName}: {plaintext[..Math.Min(50, plaintext.Length)]}");
+        Console.WriteLine($"[Bridge] Decrypted from {senderName}: {plaintext[..Math.Min(50, plaintext.Length)]}");
 
         _bus.Publish(new MessageReceivedEvent
         {
             GroupHash = groupHash,
-            Sender = sender,
+            Sender = evt.UserId,
             Epoch = result.Epoch,
             Plaintext = System.Text.Encoding.UTF8.GetBytes(plaintext),
         });
     }
 
-    // ── Outbound: ChatViewModel → MLS encrypt → NapCat ──
+    private void HandleInboundPrivateMessage(string text, OneBotEvent evt)
+    {
+        // [MLS:WELCOME:...] — auto-join group
+        if (text.StartsWith("[MLS:WELCOME:", StringComparison.Ordinal))
+        {
+            Console.WriteLine($"[Bridge] Welcome received from {evt.UserId}, joining group...");
 
-    /// <summary>Send an encrypted message to a QQ group.</summary>
+            try
+            {
+                // Extract base64 payload after the closing bracket
+                var bracketEnd = text.IndexOf(']');
+                if (bracketEnd < 0) return;
+                var payload = text[(bracketEnd + 1)..];
+                var welcomeBytes = Convert.FromBase64String(payload);
+
+                var groupIdHex = _mls.JoinGroup(welcomeBytes);
+                if (groupIdHex != null)
+                {
+                    Console.WriteLine($"[Bridge] Joined group {groupIdHex}");
+                    RebuildHashMap();
+                    OnGroupJoined?.Invoke(groupIdHex);
+                }
+                else
+                {
+                    Console.WriteLine("[Bridge] JoinGroup failed");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Bridge] Welcome processing error: {ex.Message}");
+            }
+            return;
+        }
+
+        // [MLS:KP:...] — KeyPackage exchange (log only)
+        if (text.StartsWith("[MLS:KP:", StringComparison.Ordinal))
+        {
+            Console.WriteLine($"[Bridge] KeyPackage received from {evt.UserId}");
+            return;
+        }
+
+        Console.WriteLine($"[Bridge] Unknown MLS private message: {text[..Math.Min(80, text.Length)]}");
+    }
+
+    // ── Outbound ──
+
     public async Task<bool> SendAsync(long qqGroupId, string groupIdHex, string plaintext, CancellationToken ct = default)
     {
         if (qqGroupId == 0)
@@ -150,7 +189,6 @@ public sealed class MlsTransportBridge : IDisposable
             return false;
         }
 
-        // Encrypt
         var ciphertext = _mls.Encrypt(groupIdHex, plaintext);
         if (ciphertext == null)
         {
@@ -158,23 +196,19 @@ public sealed class MlsTransportBridge : IDisposable
             return false;
         }
 
-        // Build GROUP_HASH
         var groupIdBytes = Convert.FromHexString(groupIdHex);
         var groupHash = MessageChunker.ComputeGroupHash(groupIdBytes);
         var epoch = _mls.GetEpoch(groupIdHex);
-
-        // Format [MLS:MSG:GROUP_HASH:EPOCH:SENDER:1/1]base64
         var sender = long.TryParse(_mls.GetUsername(), out var qq) ? qq : 0;
+
         var formatted = MessageChunker.FormatMessage(
-            MlsMessageType.MSG, groupHash, epoch, sender,
-            seq: 1, total: 1, ciphertext);
+            MlsMessageType.MSG, groupHash, epoch, sender, seq: 1, total: 1, ciphertext);
 
         Console.WriteLine($"[Bridge] Sending to QQ group {qqGroupId}: hash={groupHash} epoch={epoch}");
 
         return await _server.SendGroupMessageAsync(qqGroupId, formatted, ct);
     }
 
-    /// <summary>Send a private message (for KeyPackage / Welcome exchange).</summary>
     public async Task<bool> SendPrivateAsync(long userId, string text, CancellationToken ct = default)
     {
         return await _server.SendPrivateMessageAsync(userId, text, ct);
