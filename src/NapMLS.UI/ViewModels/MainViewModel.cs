@@ -123,7 +123,8 @@ public partial class MainViewModel : ViewModelBase
         else if (string.IsNullOrEmpty(_config.IdentitySafetyCode))
         {
             var configPath = Path.Combine(_dataDir, "config.json");
-            Navigation.NavigateTo(new SetupViewModel(_config, configPath, OnSetupCompleted));
+            var setup = new SetupViewModel(_config, configPath, OnSetupCompleted) { Navigation = Navigation };
+            Navigation.NavigateTo(setup);
         }
         else
         {
@@ -137,7 +138,8 @@ public partial class MainViewModel : ViewModelBase
         var configPath = Path.Combine(_dataDir, "config.json");
         AppConfigService.Save(_config, configPath);
         Navigation.Clear();
-        Navigation.NavigateTo(new SetupViewModel(_config, configPath, OnSetupCompleted));
+        var setup = new SetupViewModel(_config, configPath, OnSetupCompleted) { Navigation = Navigation };
+        Navigation.NavigateTo(setup);
     }
 
     private void OnSetupCompleted(AppConfig config)

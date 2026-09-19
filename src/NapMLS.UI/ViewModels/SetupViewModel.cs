@@ -20,6 +20,8 @@ public partial class SetupViewModel : ViewModelBase
     private IntPtr _provider;
     private bool _ffiInitialized;
 
+    public NavigationService Navigation { get; set; } = null!;
+
     // -- Step tracking --
     [ObservableProperty]
     public partial int CurrentStep { get; set; } = 1;
@@ -275,12 +277,6 @@ public partial class SetupViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void CopySafetyCode()
-    {
-        // Clipboard handled in View code-behind via TopLevel
-    }
-
-    [RelayCommand]
     private void Complete()
     {
         if (!IsIdentityGenerated)
@@ -300,5 +296,11 @@ public partial class SetupViewModel : ViewModelBase
         }
 
         _onCompleted(_config);
+    }
+
+    [RelayCommand]
+    private void GoBack()
+    {
+        Navigation.GoBack();
     }
 }

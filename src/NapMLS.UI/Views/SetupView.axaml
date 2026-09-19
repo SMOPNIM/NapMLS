@@ -7,6 +7,14 @@
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="16" MaxWidth="500" HorizontalAlignment="Center" Margin="32">
 
+            <!-- Back button -->
+            <Button Content="← 返回"
+                    Command="{Binding GoBackCommand}"
+                    HorizontalAlignment="Left"
+                    MinWidth="80" Height="32"
+                    IsVisible="{Binding Navigation.CanGoBack}"
+                    Margin="0,0,0,8" />
+
             <TextBlock Text="初始设置"
                        FontSize="24" FontWeight="Bold"
                        HorizontalAlignment="Center" />
@@ -87,7 +95,7 @@
                                    FontSize="12" Foreground="Gray"
                                    HorizontalAlignment="Center" />
                         <Button Content="复制安全码"
-                                Command="{Binding CopySafetyCodeCommand}"
+                                Click="CopyButton_Click"
                                 HorizontalAlignment="Center"
                                 MinWidth="120" Height="32"
                                 Margin="0,4,0,0" />
