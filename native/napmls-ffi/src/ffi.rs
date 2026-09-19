@@ -1187,6 +1187,33 @@ pub extern "C" fn napmls_group_epoch(
     }
 }
 
+/// Get the raw group_id bytes from a group handle.
+/// The caller frees via napmls_free_bytes.
+#[no_mangle]
+pub extern "C" fn napmls_group_id(
+    group: *const NapMlsGroupHandle,
+    out_group_id: *mut NapMlsBytes,
+    out_error: *mut NapMlsError,
+) -> i32 {
+    let result = ffi_catch(AssertUnwindSafe(|| {
+        if group.is_null() || out_group_id.is_null() {
+            return Err(NAPMLS_ERR_NULL_POINTER);
+        }
+        let group = unsafe { &*group };
+        let id_bytes = group.group.group_id().to_vec();
+        unsafe { write_bytes(out_group_id, id_bytes); }
+        Ok(NAPMLS_OK)
+    }));
+
+    match result {
+        Ok(code) => code,
+        Err(code) => {
+            unsafe { write_error(out_error, code, "Failed to get group_id"); }
+            code
+        }
+    }
+}
+
 /// Get the list of members as a JSON byte array.
 /// Format: [{"index":0,"name":"Alice","signature_key":"base64"},...]
 /// The caller frees via napmls_free_bytes.

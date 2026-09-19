@@ -185,6 +185,12 @@ internal static partial class NativeMethods
         NapMlsError* outError);
 
     [LibraryImport(LibName)]
+    public static unsafe partial int napmls_group_id(
+        IntPtr group,
+        NapMlsBytes* outGroupId,
+        NapMlsError* outError);
+
+    [LibraryImport(LibName)]
     public static unsafe partial int napmls_group_members(
         IntPtr group,
         NapMlsBytes* outMembers,

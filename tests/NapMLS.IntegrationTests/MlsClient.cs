@@ -366,10 +366,20 @@ public sealed class MlsClient : IAsyncDisposable
 
     private static unsafe string GetGroupHash(IntPtr group)
     {
-        // We need the group_id bytes to compute the hash.
-        // The group handle itself doesn't expose group_id directly.
-        // Use the pointer address as a fallback identifier.
-        return $"grp_{group.ToInt64():X}";
+        NativeMethods.NapMlsBytes outGroupId = default;
+        var rc = NativeMethods.napmls_group_id(group, &outGroupId, null);
+        if (rc != NativeMethods.NAPMLS_OK || outGroupId.ptr == IntPtr.Zero)
+            throw new InvalidOperationException($"Failed to get group_id: {rc}");
+
+        try
+        {
+            var groupId = NativeMethods.ReadBytes(outGroupId);
+            return Core.MessageChunker.ComputeGroupHash(groupId);
+        }
+        finally
+        {
+            NativeMethods.napmls_free_bytes(outGroupId);
+        }
     }
 
     public async ValueTask DisposeAsync()

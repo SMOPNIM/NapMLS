@@ -60,20 +60,11 @@ server.OnEventReceived += async json =>
         {
             Console.WriteLine($"[Server] 🔒 MLS message detected, length={text.Length}");
         }
-
-        if (evt.GroupId.HasValue)
-        {
-            var ok = await server.SendGroupMessageAsync(evt.GroupId.Value, text);
-            Console.WriteLine($"[Server] 📤 Echo to group {evt.GroupId}: {(ok ? "✅ sent" : "❌ failed")}");
-        }
     }
     else if (evt.MessageType == "private")
     {
         var sender = OneBotParser.ParseSender(evt.Sender);
         Console.WriteLine($"[Server] 📨 Private from {sender?.Nickname ?? "?"}({evt.UserId}): {text}");
-
-        var ok = await server.SendPrivateMessageAsync(evt.UserId, text);
-        Console.WriteLine($"[Server] 📤 Echo to {evt.UserId}: {(ok ? "✅ sent" : "❌ failed")}");
     }
     else
     {
