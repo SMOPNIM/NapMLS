@@ -1,32 +1,32 @@
 # NapMLS
 
-MLS (Messaging Layer Security, RFC 9420) encrypted subgroup chat for QQ groups.
+基于 MLS（消息层安全，RFC 9420）的 QQ 群加密子群聊天。
 
-## What it does
+## 功能
 
-NapMLS adds end-to-end encrypted subgroups within QQ groups. Members are manually verified via out-of-band safety codes. Non-trusted members see only `[MLS:...]` ciphertext in the QQ group.
+在 QQ 群内建立端到端加密的子群。成员通过带外安全码手动验证。未受信成员在 QQ 群中只能看到 `[MLS:...]` 密文。
 
-## Architecture
+## 架构
 
 ```
-native/napmls-ffi/   Rust: openmls 0.9 + AES-GCM encrypted storage → napmls_ffi.dll
-src/NapMLS.Core/     C# pure-logic: MessageChunker, CommitBuffer, MessageBus, SqliteStorage
-src/NapMLS.NapCat/   C# WebSocket server (NapCat OneBot 11 reverse WebSocket)
+native/napmls-ffi/   Rust: openmls 0.9 + AES-GCM 加密存储 → napmls_ffi.dll
+src/NapMLS.Core/     C# 纯逻辑: MessageChunker, CommitBuffer, MessageBus, SqliteStorage
+src/NapMLS.NapCat/   C# WebSocket 服务端（NapCat OneBot 11 反向 WebSocket）
 src/NapMLS.UI/       C# Avalonia 12.1 + CommunityToolkit.Mvvm 8.4 (MVVM)
 tests/               xunit (CoreTest, IntegrationTests, UI.Tests)
 ```
 
-## How it works
+## 工作原理
 
-1. Each user generates an MLS identity (signing key pair)
-2. Safety code derived from public key: `NAPMLS-XXXX-XXXX-XXXX-XXXX`
-3. Users verify each other's safety codes out-of-band (phone, in-person, etc.)
-4. Trusted members exchange KeyPackages via QQ messages
-5. A subgroup creator sends Welcome to selected members
-6. All messages in the subgroup are MLS-encrypted
-7. QQ group sees only `[MLS:MSG:...]` ciphertext; NapMLS UI shows plaintext
+1. 每个用户生成 MLS 身份（签名密钥对）
+2. 从公钥派生安全码：`NAPMLS-XXXX-XXXX-XXXX-XXXX`
+3. 用户通过带外渠道（电话、面对面等）互相验证安全码
+4. 受信成员通过 QQ 消息交换 KeyPackage
+5. 子群创建者向选定成员发送 Welcome
+6. 子群内所有消息均经 MLS 加密
+7. QQ 群中只显示 `[MLS:MSG:...]` 密文；NapMLS UI 显示明文
 
-## Build
+## 构建
 
 ```bash
 # Rust FFI
@@ -35,19 +35,19 @@ cd native/napmls-ffi && cargo build --release
 # .NET
 dotnet build NapMLS.slnx
 
-# Tests
-dotnet test tests/NapMLS.CoreTest/           # 38 unit tests
-dotnet test tests/NapMLS.UI.Tests/           # 16 unit tests
-dotnet test tests/NapMLS.IntegrationTests/   # 18 integration tests (requires napmls_ffi.dll)
+# 测试
+dotnet test tests/NapMLS.CoreTest/           # 38 单元测试
+dotnet test tests/NapMLS.UI.Tests/           # 16 单元测试
+dotnet test tests/NapMLS.IntegrationTests/   # 18 集成测试（需要 napmls_ffi.dll）
 ```
 
-## Tech stack
+## 技术栈
 
 - **Rust**: openmls 0.9, aes-gcm 0.10, sha2 0.10, rusqlite 0.37 (bundled)
 - **C#**: .NET 10.0, Avalonia UI 12.1, CommunityToolkit.Mvvm 8.4
-- **Protocol**: MLS (RFC 9420) via OpenMLS, OneBot 11 via NapCat WebSocket
-- **Storage**: SQLite (Rust-side MLS state + C#-side trust relationships)
+- **协议**: MLS (RFC 9420) via OpenMLS, OneBot 11 via NapCat WebSocket
+- **存储**: SQLite（Rust 侧 MLS 状态 + C# 侧信任关系）
 
-## License
+## 许可证
 
 MIT
