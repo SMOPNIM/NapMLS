@@ -68,14 +68,31 @@ public partial class CreateSubgroupViewModel : ViewModelBase
         _navigation = navigation;
         _mls = mls;
 
-        // Mock QQ groups — P1d-5 replace with real NapCat data
-        QqGroups.Add(new QqGroupOption { QqGroupId = 10001, Name = "技术交流群" });
-        QqGroups.Add(new QqGroupOption { QqGroupId = 10002, Name = "项目协作群" });
-        QqGroups.Add(new QqGroupOption { QqGroupId = 10003, Name = "核心团队" });
+        // Real QQ groups loaded via bridge — call LoadGroupsAsync after construction
     }
 
-    /// <summary>Set the bridge reference for sending KP/Welcome via NapCat.</summary>
-    public void SetBridge(MlsTransportBridge? bridge) => _bridge = bridge;
+    /// <summary>Set the bridge reference for sending KP/Welcome via NapCat and fetching real groups.</summary>
+    public void SetBridge(MlsTransportBridge? bridge)
+    {
+        _bridge = bridge;
+        _ = LoadGroupsAsync();
+    }
+
+    private async Task LoadGroupsAsync()
+    {
+        if (_bridge == null) return;
+        try
+        {
+            var groups = await _bridge.GetGroupListAsync();
+            QqGroups.Clear();
+            foreach (var (gid, name) in groups)
+                QqGroups.Add(new QqGroupOption { QqGroupId = gid, Name = name });
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"获取群列表失败: {ex.Message}";
+        }
+    }
 
     partial void OnCurrentStepChanged(int value)
     {

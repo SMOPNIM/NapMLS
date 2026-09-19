@@ -40,6 +40,21 @@ public partial class GroupListViewModel : ViewModelBase
         _bridge = bridge;
         _bus = bus;
         WelcomeText = $"欢迎, {config.IdentityUsername ?? "用户"}";
+
+        if (_bridge != null)
+        {
+            IsConnected = _bridge.IsConnected;
+            ConnectionStatus = _bridge.IsConnected ? "NapCat 已连接" : "NapCat 未连接";
+            _bridge.OnConnectionChanged += connected =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    IsConnected = connected;
+                    ConnectionStatus = connected ? "NapCat 已连接" : "NapCat 未连接";
+                });
+            };
+        }
+
         LoadGroups();
     }
 

@@ -170,6 +170,27 @@ public sealed class NapCatServer : IAsyncDisposable
         return resp?.RetCode == 0;
     }
 
+    /// <summary>Get list of groups the bot is in. Returns (groupId, groupName) pairs.</summary>
+    public async Task<List<(long GroupId, string GroupName)>> GetGroupListAsync(CancellationToken ct = default)
+    {
+        var resp = await SendApiAsync("get_group_list", null, ct);
+        if (resp?.RetCode != 0 || resp.Data == null)
+            return [];
+
+        var result = new List<(long, string)>();
+        try
+        {
+            foreach (var item in resp.Data.Value.EnumerateArray())
+            {
+                var gid = item.GetProperty("group_id").GetInt64();
+                var name = item.TryGetProperty("group_name", out var gn) ? gn.GetString() ?? gid.ToString() : gid.ToString();
+                result.Add((gid, name));
+            }
+        }
+        catch { }
+        return result;
+    }
+
     /// <summary>Notify that a heartbeat was received (call from event handler).</summary>
     public void RecordHeartbeat()
     {

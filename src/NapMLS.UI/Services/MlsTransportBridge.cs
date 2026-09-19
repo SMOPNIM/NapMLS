@@ -242,6 +242,12 @@ public sealed class MlsTransportBridge : IDisposable
         return await _server.SendGroupMessageAsync(qqGroupId, formatted, ct);
     }
 
+    /// <summary>Get list of QQ groups the bot is in.</summary>
+    public async Task<List<(long GroupId, string GroupName)>> GetGroupListAsync(CancellationToken ct = default)
+    {
+        return await _server.GetGroupListAsync(ct);
+    }
+
     public async Task<bool> SendPrivateAsync(long userId, string text, CancellationToken ct = default)
     {
         return await _server.SendPrivateMessageAsync(userId, text, ct);
