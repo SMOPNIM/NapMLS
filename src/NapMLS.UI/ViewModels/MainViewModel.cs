@@ -69,7 +69,7 @@ public partial class MainViewModel : ViewModelBase
 
         if (string.IsNullOrEmpty(_config.IdentityUsername)) return null;
 
-        var dbPath = Path.Combine(GetAppDir(), "napmls.db");
+        var dbPath = Path.Combine(GetAppDir(), "mls_data.db");
         // Must match SetupViewModel's key — napmls_init is OnceLock, key mismatch = ERR_KEY_MISMATCH
         var key = SHA256.HashData(Encoding.UTF8.GetBytes("napmls-test-password"));
         _mls = MlsService.Open(dbPath, key, _config.IdentityUsername);
