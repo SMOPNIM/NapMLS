@@ -22,7 +22,7 @@ pub fn try_init_encryption_key(key: [u8; 32]) -> bool {
 }
 
 /// Get the global encryption key.
-fn get_key() -> Option<&'static [u8; 32]> {
+pub fn get_key() -> Option<&'static [u8; 32]> {
     ENCRYPTION_KEY.get()
 }
 

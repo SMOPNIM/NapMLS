@@ -4,7 +4,7 @@ namespace NapMLS.UI.Services;
 
 /// <summary>
 /// P/Invoke bindings for napmls_ffi.dll used by the UI.
-/// Full set: init, provider, identity, groups, encrypt/decrypt.
+/// Signatures MUST match native/napmls-ffi/src/ffi.rs exactly.
 /// </summary>
 internal static partial class NapMlsNative
 {
@@ -25,6 +25,7 @@ internal static partial class NapMlsNative
     }
 
     public const int NAPMLS_OK = 0;
+    public const int NAPMLS_ERR_KEY_MISMATCH = -7;
 
     public static byte[] ReadBytes(NapMlsBytes bytes)
     {
@@ -100,20 +101,26 @@ internal static partial class NapMlsNative
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_group_epoch(
-        IntPtr provider, IntPtr identity, byte* groupId, int groupIdLen);
+        IntPtr group, ulong* outEpoch, NapMlsError* outError);
 
-    // --- Encrypt / Decrypt ---
+    [LibraryImport(LibName)]
+    public static unsafe partial int napmls_group_id(
+        IntPtr group, NapMlsBytes* outGroupId, NapMlsError* outError);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int napmls_group_members(
+        IntPtr group, NapMlsBytes* outMembers, NapMlsError* outError);
+
+    // --- Encrypt / Decrypt (take group handle, not group_id bytes) ---
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_encrypt(
-        IntPtr provider, IntPtr identity,
-        byte* groupId, int groupIdLen,
+        IntPtr provider, IntPtr group, IntPtr identity,
         byte* plaintext, int plaintextLen,
         NapMlsBytes* outCiphertext, NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_decrypt(
-        IntPtr provider, IntPtr identity,
-        byte* groupId, int groupIdLen,
+        IntPtr provider, IntPtr group,
         byte* ciphertext, int ciphertextLen,
         NapMlsBytes* outPlaintext, NapMlsError* outError);
 
@@ -123,31 +130,28 @@ internal static partial class NapMlsNative
         IntPtr provider, IntPtr identity,
         NapMlsBytes* outKeyPackage, NapMlsError* outError);
 
-    // --- Membership ---
+    // --- Membership (take group handle, not groupId bytes) ---
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_add_members(
-        IntPtr provider, IntPtr identity,
-        byte* groupId, int groupIdLen,
-        byte* keyPackages, int keyPackagesLen,
+        IntPtr provider, IntPtr group, IntPtr identity,
+        byte* keyPackageData, int keyPackageLen,
         NapMlsBytes* outWelcome, NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_process_welcome(
-        IntPtr provider, IntPtr identity,
+        IntPtr provider,
         byte* welcomeData, int welcomeLen,
-        byte* outGroupId, int outGroupIdLen,
-        NapMlsError* outError);
+        IntPtr* outGroup, NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_remove_members(
-        IntPtr provider, IntPtr identity,
-        byte* groupId, int groupIdLen,
-        byte* memberKeys, int memberKeysLen,
+        IntPtr provider, IntPtr group, IntPtr identity,
+        uint removedLeafIndex,
         NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_group_member_count(
-        IntPtr provider, IntPtr identity, byte* groupId, int groupIdLen);
+        IntPtr group, uint* outCount, NapMlsError* outError);
 
     // --- Utilities ---
     [LibraryImport(LibName)]

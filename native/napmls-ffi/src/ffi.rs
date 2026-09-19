@@ -164,6 +164,7 @@ const NAPMLS_ERR_DESERIALIZATION: i32 = -3;
 const NAPMLS_ERR_MLS_PROTOCOL: i32 = -4;
 const NAPMLS_ERR_STORAGE: i32 = -5;
 const NAPMLS_ERR_NOT_FOUND: i32 = -6;
+const NAPMLS_ERR_KEY_MISMATCH: i32 = -7;
 
 // ===== Helper Functions =====
 
@@ -202,7 +203,8 @@ where
 // ===== FFI Functions =====
 
 /// Initialize the global encryption key. Call once at startup.
-/// Returns NAPMLS_OK on success. Idempotent (returns OK if already initialized).
+/// Returns NAPMLS_OK if already initialized with the same key.
+/// Returns NAPMLS_ERR_KEY_MISMATCH if initialized with a different key.
 #[no_mangle]
 pub extern "C" fn napmls_init(encryption_key: *const u8, key_len: usize) -> i32 {
     let result = ffi_catch(AssertUnwindSafe(|| {
@@ -211,6 +213,16 @@ pub extern "C" fn napmls_init(encryption_key: *const u8, key_len: usize) -> i32 
         }
         let mut key = [0u8; 32];
         unsafe { ptr::copy_nonoverlapping(encryption_key, key.as_mut_ptr(), 32); }
+
+        // Check if already initialized
+        if let Some(existing) = crate::encrypted_storage::get_key() {
+            if *existing == key {
+                return Ok(NAPMLS_OK); // same key — idempotent
+            } else {
+                return Err(NAPMLS_ERR_KEY_MISMATCH);
+            }
+        }
+
         let _ = try_init_encryption_key(key);
         Ok(NAPMLS_OK)
     }));
