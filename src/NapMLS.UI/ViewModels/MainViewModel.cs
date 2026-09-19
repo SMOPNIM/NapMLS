@@ -16,6 +16,8 @@ namespace NapMLS.UI.ViewModels;
 ///     → risk not accepted → RiskWarning
 ///     → risk accepted, no identity → Setup Step 2
 ///     → risk accepted + identity → GroupList
+///
+/// Isolation: pass --data-dir &lt;path&gt; to use separate storage directories.
 /// </summary>
 public partial class MainViewModel : ViewModelBase
 {
@@ -27,19 +29,31 @@ public partial class MainViewModel : ViewModelBase
     private AppConfig _config = new();
     private SqliteStorage? _storage;
     private MlsService? _mls;
+    private readonly string _dataDir;
 
-    public MainViewModel()
+    public MainViewModel() : this(GetDataDirFromArgs()) { }
+
+    public MainViewModel(string dataDir)
     {
-        _config = AppConfigService.Load();
+        _dataDir = dataDir;
+        _config = AppConfigService.Load(Path.Combine(dataDir, "config.json"));
         RunStartupStateMachine();
     }
 
-    private string GetAppDir()
+    private static string GetDataDirFromArgs()
     {
+        var args = Environment.GetCommandLineArgs();
+        for (int i = 1; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--data-dir")
+                return args[i + 1];
+        }
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "NapMLS");
     }
+
+    private string GetAppDir() => _dataDir;
 
     private SqliteStorage GetStorage()
     {
@@ -74,7 +88,8 @@ public partial class MainViewModel : ViewModelBase
         }
         else if (string.IsNullOrEmpty(_config.IdentitySafetyCode))
         {
-            Navigation.NavigateTo(new SetupViewModel(_config, OnSetupCompleted));
+            var configPath = Path.Combine(_dataDir, "config.json");
+            Navigation.NavigateTo(new SetupViewModel(_config, configPath, OnSetupCompleted));
         }
         else
         {
@@ -85,9 +100,10 @@ public partial class MainViewModel : ViewModelBase
     private void OnRiskAccepted()
     {
         _config.RiskWarningAccepted = true;
-        AppConfigService.Save(_config);
+        var configPath = Path.Combine(_dataDir, "config.json");
+        AppConfigService.Save(_config, configPath);
         Navigation.Clear();
-        Navigation.NavigateTo(new SetupViewModel(_config, OnSetupCompleted));
+        Navigation.NavigateTo(new SetupViewModel(_config, configPath, OnSetupCompleted));
     }
 
     private void OnSetupCompleted(AppConfig config)

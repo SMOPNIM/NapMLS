@@ -15,16 +15,14 @@ public static class AppConfigService
         WriteIndented = true,
     };
 
-    private static string ConfigPath =>
-        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-
-    public static AppConfig Load()
+    public static AppConfig Load(string? path = null)
     {
+        var configPath = path ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
         try
         {
-            if (File.Exists(ConfigPath))
+            if (File.Exists(configPath))
             {
-                var json = File.ReadAllText(ConfigPath);
+                var json = File.ReadAllText(configPath);
                 return JsonSerializer.Deserialize<AppConfig>(json, JsonOpts) ?? new AppConfig();
             }
         }
@@ -35,11 +33,19 @@ public static class AppConfigService
         return new AppConfig();
     }
 
-    public static void Save(AppConfig config)
+    public static void Save(AppConfig config, string? path = null)
     {
+        var configPath = path ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+        var dir = Path.GetDirectoryName(configPath);
+        if (dir != null && !Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(config, JsonOpts);
-        File.WriteAllText(ConfigPath, json);
+        File.WriteAllText(configPath, json);
     }
 
-    public static bool Exists() => File.Exists(ConfigPath);
+    public static bool Exists(string? path = null)
+    {
+        var configPath = path ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+        return File.Exists(configPath);
+    }
 }

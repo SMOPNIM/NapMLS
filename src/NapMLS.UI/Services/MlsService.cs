@@ -10,6 +10,8 @@ namespace NapMLS.UI.Services;
 /// </summary>
 public sealed class MlsService : IDisposable
 {
+    public const int NAPMLS_ERR_KEY_MISMATCH = -7;
+
     private IntPtr _provider;
     private IntPtr _identity;
     private bool _disposed;
@@ -25,14 +27,20 @@ public sealed class MlsService : IDisposable
 
     public static MlsService? Open(string dbPath, byte[] encryptionKey, string? username = null)
     {
+        int initResult = 0;
         unsafe
         {
             fixed (byte* keyPtr = encryptionKey)
             {
-                var rc = NapMlsNative.napmls_init(keyPtr, encryptionKey.Length);
-                if (rc != NapMlsNative.NAPMLS_OK) return null;
+                initResult = NapMlsNative.napmls_init(keyPtr, encryptionKey.Length);
             }
+        }
 
+        LastOpenError = initResult;
+        if (initResult != NapMlsNative.NAPMLS_OK) return null;
+
+        unsafe
+        {
             var error = new NapMlsNative.NapMlsError();
             IntPtr provider;
             var pathBytes = Encoding.UTF8.GetBytes(dbPath);
@@ -189,7 +197,11 @@ public sealed class MlsService : IDisposable
 
         var groupIdHex = GetGroupHandleId(group);
         if (groupIdHex != null)
+        {
+            if (_groups.TryGetValue(groupIdHex, out var old))
+                NapMlsNative.napmls_group_free(old);
             _groups[groupIdHex] = group;
+        }
         else
             NapMlsNative.napmls_group_free(group);
 
@@ -218,12 +230,26 @@ public sealed class MlsService : IDisposable
 
         var groupIdHex = GetGroupHandleId(group);
         if (groupIdHex != null)
+        {
+            if (_groups.TryGetValue(groupIdHex, out var old))
+                NapMlsNative.napmls_group_free(old);
             _groups[groupIdHex] = group;
+        }
         else
             NapMlsNative.napmls_group_free(group);
 
         return groupIdHex;
     }
+
+    /// <summary>Remove a group from the local handle cache and free its FFI handle.</summary>
+    public void RemoveGroup(string groupIdHex)
+    {
+        if (_groups.Remove(groupIdHex, out var group))
+            NapMlsNative.napmls_group_free(group);
+    }
+
+    /// <summary>Last error from Open(). NAPMLS_ERR_KEY_MISMATCH = wrong password.</summary>
+    public static int LastOpenError { get; private set; }
 
     public byte[]? Encrypt(string groupIdHex, string plaintext)
     {

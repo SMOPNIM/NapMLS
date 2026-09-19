@@ -16,6 +16,7 @@ public partial class SetupViewModel : ViewModelBase
 {
     private readonly Action<AppConfig> _onCompleted;
     private readonly AppConfig _config;
+    private readonly string _configPath;
     private IntPtr _provider;
     private bool _ffiInitialized;
 
@@ -71,13 +72,19 @@ public partial class SetupViewModel : ViewModelBase
     [ObservableProperty]
     public partial string StepTitle { get; set; } = "步骤 1/2：NapCat 连接配置";
 
-    private string DbPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "NapMLS", "mls_data.db");
+    private string DbPath
+    {
+        get
+        {
+            var dir = Path.GetDirectoryName(_configPath) ?? "";
+            return Path.Combine(dir, "mls_data.db");
+        }
+    }
 
-    public SetupViewModel(AppConfig config, Action<AppConfig> onCompleted)
+    public SetupViewModel(AppConfig config, string configPath, Action<AppConfig> onCompleted)
     {
         _config = config;
+        _configPath = configPath;
         _onCompleted = onCompleted;
 
         NapCatHost = config.NapCatHost;
@@ -170,7 +177,7 @@ public partial class SetupViewModel : ViewModelBase
         _config.NapCatHost = NapCatHost;
         _config.NapCatPort = NapCatPort;
         _config.NapCatToken = NapCatToken;
-        AppConfigService.Save(_config);
+        AppConfigService.Save(_config, _configPath);
 
         CurrentStep = 2;
         IsStep1Visible = false;
@@ -241,7 +248,7 @@ public partial class SetupViewModel : ViewModelBase
             _config.IdentityUsername = Username;
             _config.IdentityFingerprint = FingerprintHex;
             _config.IdentitySafetyCode = SafetyCode;
-            AppConfigService.Save(_config);
+            AppConfigService.Save(_config, _configPath);
         }
         catch (Exception ex)
         {
@@ -283,7 +290,7 @@ public partial class SetupViewModel : ViewModelBase
         }
 
         _config.RiskWarningAccepted = true;
-        AppConfigService.Save(_config);
+        AppConfigService.Save(_config, _configPath);
 
         // Free provider — will be recreated by the next MlsClient
         if (_provider != IntPtr.Zero)
