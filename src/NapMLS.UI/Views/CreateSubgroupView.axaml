@@ -7,6 +7,11 @@
     <DockPanel>
         <!-- Header -->
         <DockPanel DockPanel.Dock="Top" Margin="16,16,16,8">
+            <Button Content="← 返回"
+                    Command="{Binding CancelCommand}"
+                    DockPanel.Dock="Left"
+                    MinWidth="60" Height="32"
+                    VerticalAlignment="Center" />
             <TextBlock Text="新建加密子群"
                        FontSize="24" FontWeight="Bold"
                        VerticalAlignment="Center" />
@@ -119,7 +124,13 @@
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="成员人数:" FontSize="14" FontWeight="SemiBold" Width="80" />
-                        <TextBlock Text="{Binding SelectedMembers.Count}" FontSize="14" />
+                        <TextBlock FontSize="14">
+                            <TextBlock.Text>
+                                <MultiBinding StringFormat="{}{0} 人 (含创建者)">
+                                    <Binding Path="SelectedMembers.Count" />
+                                </MultiBinding>
+                            </TextBlock.Text>
+                        </TextBlock>
                     </StackPanel>
                 </StackPanel>
                 <TextBlock Text="成员列表:" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,0" />
@@ -137,6 +148,10 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <TextBlock Text="{Binding ErrorMessage}"
+                           FontSize="13" Foreground="Red"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
 
         </Panel>

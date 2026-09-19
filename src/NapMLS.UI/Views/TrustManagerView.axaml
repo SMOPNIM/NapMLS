@@ -7,6 +7,12 @@
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="16" MaxWidth="500" HorizontalAlignment="Center" Margin="32">
 
+            <Button Content="← 返回"
+                    Command="{Binding GoBackCommand}"
+                    HorizontalAlignment="Left"
+                    MinWidth="80" Height="32"
+                    Margin="0,0,0,8" />
+
             <TextBlock Text="信任成员管理"
                        FontSize="24" FontWeight="Bold"
                        HorizontalAlignment="Center" />

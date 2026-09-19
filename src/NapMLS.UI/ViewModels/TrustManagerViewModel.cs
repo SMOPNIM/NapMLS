@@ -15,6 +15,8 @@ public partial class TrustManagerViewModel : ViewModelBase
     private readonly string _mySafetyCode;
     private readonly byte[] _myFingerprint;
 
+    public NavigationService Navigation { get; set; } = null!;
+
     // -- My safety code --
     [ObservableProperty]
     public partial string SafetyCode { get; set; }
@@ -138,6 +140,12 @@ public partial class TrustManagerViewModel : ViewModelBase
         _storage.SetVerified(qqNumber, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
         LoadPeers();
+    }
+
+    [RelayCommand]
+    private void GoBack()
+    {
+        Navigation.GoBack();
     }
 }
 

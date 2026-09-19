@@ -77,7 +77,7 @@ public partial class GroupListViewModel : ViewModelBase
                 GroupName = g.name,
                 GroupId = g.group_id,
                 QqGroupId = qqGroupId,
-                MemberCount = 1,
+                MemberCount = _mls.GetMemberCount(g.group_id),
                 Epoch = g.epoch,
                 SyncState = "已同步",
                 LastActivity = $"Epoch {g.epoch}",
@@ -118,6 +118,7 @@ public partial class GroupListViewModel : ViewModelBase
             AvailablePeers = { },
         };
         wizard.SetBridge(_bridge);
+        wizard.SetRefreshCallback(LoadGroups);
         foreach (var sp in selectablePeers)
             wizard.AvailablePeers.Add(sp);
 
@@ -127,7 +128,8 @@ public partial class GroupListViewModel : ViewModelBase
     [RelayCommand]
     private void OpenTrustManager()
     {
-        Navigation.NavigateTo(new TrustManagerViewModel(_storage, _fingerprint));
+        var vm = new TrustManagerViewModel(_storage, _fingerprint) { Navigation = Navigation };
+        Navigation.NavigateTo(vm);
     }
 
     [RelayCommand]

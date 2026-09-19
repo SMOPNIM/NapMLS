@@ -416,6 +416,19 @@ public sealed class MlsService : IDisposable
         }
     }
 
+    public int GetMemberCount(string groupIdHex)
+    {
+        if (_disposed || _provider == IntPtr.Zero) return 0;
+        if (!_groups.TryGetValue(groupIdHex, out var group)) return 0;
+
+        unsafe
+        {
+            uint count = 0;
+            var rc = NapMlsNative.napmls_group_member_count(group, &count, null);
+            return rc == NapMlsNative.NAPMLS_OK ? (int)count : 0;
+        }
+    }
+
     public List<MlsGroupInfo> ListGroups()
     {
         if (_disposed || _provider == IntPtr.Zero) return [];

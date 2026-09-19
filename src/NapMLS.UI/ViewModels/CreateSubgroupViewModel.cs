@@ -20,6 +20,7 @@ public partial class CreateSubgroupViewModel : ViewModelBase
     private readonly NavigationService _navigation;
     private readonly MlsService? _mls;
     private MlsTransportBridge? _bridge;
+    private Action? _onGroupCreated;
 
     // Collected peer KeyPackages for AddMembers
     private readonly Dictionary<string, byte[]> _collectedKeyPackages = new();
@@ -77,6 +78,9 @@ public partial class CreateSubgroupViewModel : ViewModelBase
         _bridge = bridge;
         _ = LoadGroupsAsync();
     }
+
+    /// <summary>Set callback to refresh group list after creation.</summary>
+    public void SetRefreshCallback(Action? callback) => _onGroupCreated = callback;
 
     private async Task LoadGroupsAsync()
     {
@@ -192,6 +196,7 @@ public partial class CreateSubgroupViewModel : ViewModelBase
                 }
             }
 
+            _onGroupCreated?.Invoke();
             _navigation.GoBack();
         }
         catch (Exception ex)
