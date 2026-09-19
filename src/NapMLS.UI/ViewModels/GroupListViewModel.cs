@@ -17,6 +17,8 @@ public partial class GroupListViewModel : ViewModelBase
     private readonly SqliteStorage _storage;
     private readonly byte[] _fingerprint;
     private readonly MlsService? _mls;
+    private readonly MlsTransportBridge? _bridge;
+    private readonly MessageBus? _bus;
 
     [ObservableProperty]
     public partial bool IsConnected { get; set; }
@@ -29,12 +31,14 @@ public partial class GroupListViewModel : ViewModelBase
 
     public ObservableCollection<GroupItemViewModel> Groups { get; } = [];
 
-    public GroupListViewModel(AppConfig config, SqliteStorage storage, byte[] fingerprint, MlsService? mls)
+    public GroupListViewModel(AppConfig config, SqliteStorage storage, byte[] fingerprint, MlsService? mls, MlsTransportBridge? bridge = null, MessageBus? bus = null)
     {
         _config = config;
         _storage = storage;
         _fingerprint = fingerprint;
         _mls = mls;
+        _bridge = bridge;
+        _bus = bus;
         WelcomeText = $"欢迎, {config.IdentityUsername ?? "用户"}";
         LoadGroups();
     }
@@ -113,7 +117,15 @@ public partial class GroupListViewModel : ViewModelBase
     [RelayCommand]
     private void OpenGroup(GroupItemViewModel group)
     {
-        var chat = new ChatViewModel(Navigation, _mls)
+        long qqGroupId = 0;
+        if (!string.IsNullOrEmpty(group.GroupId))
+        {
+            var binding = _storage.GetGroupBinding(Convert.FromHexString(group.GroupId));
+            if (binding != null && long.TryParse(binding.QqGroupId, out var parsed))
+                qqGroupId = parsed;
+        }
+
+        var chat = new ChatViewModel(Navigation, _mls, _bridge, _bus, qqGroupId)
         {
             GroupName = group.GroupName,
             GroupId = group.GroupId,

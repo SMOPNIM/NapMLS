@@ -1,19 +1,26 @@
 using System.Collections.ObjectModel;
 using System.Text;
+using Avalonia;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NapMLS.Core;
 using NapMLS.UI.Services;
 
 namespace NapMLS.UI.ViewModels;
 
 /// <summary>
-/// P1d-4: Chat page with real MLS encrypt/decrypt.
+/// Chat page with real MLS encrypt/decrypt via MlsTransportBridge.
 /// Shows messages for a single MLS group.
 /// </summary>
 public partial class ChatViewModel : ViewModelBase
 {
     private readonly NavigationService _navigation;
     private readonly MlsService? _mls;
+    private readonly MlsTransportBridge? _bridge;
+    private readonly MessageBus? _bus;
+    private IDisposable? _messageSubscription;
+    private long _qqGroupId;
 
     [ObservableProperty]
     public partial string GroupName { get; set; } = "";
@@ -38,10 +45,37 @@ public partial class ChatViewModel : ViewModelBase
 
     public ObservableCollection<MessageViewModel> Messages { get; } = [];
 
-    public ChatViewModel(NavigationService navigation, MlsService? mls = null)
+    public ChatViewModel(NavigationService navigation, MlsService? mls = null, MlsTransportBridge? bridge = null, MessageBus? bus = null, long qqGroupId = 0)
     {
         _navigation = navigation;
         _mls = mls;
+        _bridge = bridge;
+        _bus = bus;
+        _qqGroupId = qqGroupId;
+
+        _messageSubscription = (_mls != null && _bus != null) ? SubscribeMessages() : null;
+    }
+
+    private IDisposable? SubscribeMessages()
+    {
+        if (_bus == null || GroupId == null) return null;
+
+        var groupHash = MessageChunker.ComputeGroupHash(Convert.FromHexString(GroupId));
+
+        return _bus.Subscribe<MessageReceivedEvent>(evt =>
+        {
+            if (evt.GroupHash != groupHash)
+                return;
+
+            var senderName = evt.Sender.ToString();
+            var plaintext = Encoding.UTF8.GetString(evt.Plaintext);
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                AddMessage(senderName, plaintext, isOwn: false, encrypted: true, status: "已解密");
+                Epoch = (int)evt.Epoch;
+            });
+        });
     }
 
     [RelayCommand]
@@ -51,68 +85,69 @@ public partial class ChatViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void SendMessage()
+    private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(InputText) || GroupId == null || _mls == null)
+        if (string.IsNullOrWhiteSpace(InputText) || GroupId == null)
         {
-            // Fallback: send unencrypted if no MLS
             AddMessage("我", InputText, isOwn: true, encrypted: false, status: "未加密");
             InputText = "";
             return;
         }
 
-        try
+        if (_bridge != null && _qqGroupId != 0)
         {
-            var cipher = _mls.Encrypt(GroupId, InputText);
-            if (cipher != null)
+            // Real NapCat transport
+            try
             {
-                // Own message: display plaintext locally (MLS returns null on self-decrypt)
-                AddMessage("我", InputText, isOwn: true, encrypted: true, status: "已加密发送");
+                IsSending = true;
+                var ok = await _bridge.SendAsync(_qqGroupId, GroupId, InputText);
+                if (ok)
+                {
+                    AddMessage("我", InputText, isOwn: true, encrypted: true, status: "已加密发送");
+                }
+                else
+                {
+                    AddMessage("我", InputText, isOwn: true, encrypted: false, status: "发送失败");
+                }
             }
-            else
+            catch (Exception ex)
             {
-                AddMessage("我", InputText, isOwn: true, encrypted: false, status: "加密失败");
+                AddMessage("我", InputText, isOwn: true, encrypted: false, status: $"错误: {ex.Message}");
+            }
+            finally
+            {
+                IsSending = false;
             }
         }
-        catch (Exception ex)
+        else if (_mls != null)
         {
-            AddMessage("我", InputText, isOwn: true, encrypted: false, status: $"错误: {ex.Message}");
+            // FFI-only mode (testing without NapCat)
+            try
+            {
+                var cipher = _mls.Encrypt(GroupId, InputText);
+                if (cipher != null)
+                {
+                    AddMessage("我", InputText, isOwn: true, encrypted: true, status: "已加密发送");
+                }
+                else
+                {
+                    AddMessage("我", InputText, isOwn: true, encrypted: false, status: "加密失败");
+                }
+            }
+            catch (Exception ex)
+            {
+                AddMessage("我", InputText, isOwn: true, encrypted: false, status: $"错误: {ex.Message}");
+            }
+        }
+        else
+        {
+            AddMessage("我", InputText, isOwn: true, encrypted: false, status: "未加密");
         }
 
         LastMessagePreview = InputText.Length > 30
             ? InputText[..30] + "..."
             : InputText;
         InputText = "";
-    }
-
-    /// <summary>
-    /// Receive and decrypt a message from the wire.
-    /// Called by NapCat transport when a group message arrives.
-    /// </summary>
-    public void ReceiveMessage(string senderName, byte[] ciphertext)
-    {
-        if (GroupId == null || _mls == null)
-        {
-            AddMessage(senderName, "[无法解密]", isOwn: false, encrypted: true, status: "解密失败");
-            return;
-        }
-
-        try
-        {
-            var plaintext = _mls.Decrypt(GroupId, ciphertext);
-            if (plaintext != null)
-            {
-                AddMessage(senderName, plaintext, isOwn: false, encrypted: true, status: "已解密");
-            }
-            else
-            {
-                AddMessage(senderName, "[密文无法解密]", isOwn: false, encrypted: true, status: "解密失败");
-            }
-        }
-        catch
-        {
-            AddMessage(senderName, "[密文无法解密]", isOwn: false, encrypted: true, status: "解密失败");
-        }
     }
 
     private void AddMessage(string sender, string text, bool isOwn, bool encrypted, string status)
@@ -126,6 +161,11 @@ public partial class ChatViewModel : ViewModelBase
             IsEncrypted = encrypted,
             Status = status,
         });
+    }
+
+    public void Dispose()
+    {
+        _messageSubscription?.Dispose();
     }
 }
 

@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NapMLS.Core\NapMLS.Core.csproj" />
+    <ProjectReference Include="..\NapMLS.NapCat\NapMLS.NapCat.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,23 +1,18 @@
 using System.Security.Cryptography;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.Extensions.Logging;
 using NapMLS.Core;
+using NapMLS.NapCat;
 using NapMLS.UI.Models;
 using NapMLS.UI.Services;
 
 namespace NapMLS.UI.ViewModels;
 
 /// <summary>
-/// P1d-2/5: Main window ViewModel with startup state machine.
-///
-/// State machine:
-///   config.json missing → RiskWarning → Setup Step 1
-///   config.json exists
-///     → risk not accepted → RiskWarning
-///     → risk accepted, no identity → Setup Step 2
-///     → risk accepted + identity → GroupList
-///
-/// Isolation: pass --data-dir &lt;path&gt; to use separate storage directories.
+/// Main window ViewModel with startup state machine.
+/// Creates NapCatServer + MlsTransportBridge for real QQ messaging.
+/// Isolation: pass --data-dir to use separate storage directories.
 /// </summary>
 public partial class MainViewModel : ViewModelBase
 {
@@ -29,6 +24,9 @@ public partial class MainViewModel : ViewModelBase
     private AppConfig _config = new();
     private SqliteStorage? _storage;
     private MlsService? _mls;
+    private MlsTransportBridge? _bridge;
+    private NapCatServer? _server;
+    private MessageBus? _bus;
     private readonly string _dataDir;
 
     public MainViewModel() : this(GetDataDirFromArgs()) { }
@@ -72,12 +70,48 @@ public partial class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(_config.IdentityUsername)) return null;
 
         var dbPath = Path.Combine(GetAppDir(), "napmls.db");
-
-        // Derive encryption key from username (P1d-5: real Argon2id deferred)
         var key = SHA256.HashData(Encoding.UTF8.GetBytes(_config.IdentityUsername));
-
         _mls = MlsService.Open(dbPath, key, _config.IdentityUsername);
         return _mls;
+    }
+
+    private (NapCatServer server, MlsTransportBridge bridge, MessageBus bus) GetTransport()
+    {
+        if (_server != null && _bridge != null && _bus != null)
+            return (_server, _bridge, _bus);
+
+        var loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
+        var logger = loggerFactory.CreateLogger("NapMLS");
+
+        _bus = new MessageBus();
+
+        _server = new NapCatServer(
+            host: _config.NapCatHost,
+            port: _config.NapCatPort,
+            token: _config.NapCatToken,
+            logger: logger);
+
+        _server.OnConnectionChanged += connected =>
+        {
+            Console.WriteLine(connected ? "[Bridge] NapCat CONNECTED" : "[Bridge] NapCat DISCONNECTED");
+        };
+
+        _server.OnEventReceived += json =>
+        {
+            var evt = OneBotParser.ParseEvent(json);
+            if (evt == null) return;
+
+            if (evt.PostType == "meta_event" && evt.MetaEventType == "heartbeat")
+                _server.RecordHeartbeat();
+        };
+
+        var mls = GetMls();
+        if (mls != null)
+        {
+            _bridge = new MlsTransportBridge(_server, mls, _bus, GetStorage());
+        }
+
+        return (_server, _bridge!, _bus);
     }
 
     private void RunStartupStateMachine()
@@ -113,12 +147,27 @@ public partial class MainViewModel : ViewModelBase
         NavigateToGroups();
     }
 
-    private void NavigateToGroups()
+    private async void NavigateToGroups()
     {
         var storage = GetStorage();
         var fp = Convert.FromHexString(_config.IdentityFingerprint!);
         var mls = GetMls();
-        var vm = new GroupListViewModel(_config, storage, fp, mls)
+
+        MlsTransportBridge? bridge = null;
+        MessageBus? bus = null;
+        NapCatServer? server = null;
+
+        try
+        {
+            (server, bridge, bus) = GetTransport();
+            await server.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[MainViewModel] Failed to start NapCat server: {ex.Message}");
+        }
+
+        var vm = new GroupListViewModel(_config, storage, fp, mls, bridge, bus)
         {
             Navigation = Navigation,
         };
