@@ -9,22 +9,33 @@ var loggerFactory = LoggerFactory.Create(builder =>
 
 var logger = loggerFactory.CreateLogger("NapMLS");
 
-Console.WriteLine("=== NapMLS — Real NapCat Test ===");
-Console.WriteLine("Waiting for NapCat WebSocket connection on ws://127.0.0.1:18080");
-Console.WriteLine("Token: test-token-123");
+// Parse --port and --token from command line
+int port = 18080;
+string token = "test-token-123";
+for (int i = 0; i < args.Length - 1; i++)
+{
+    if (args[i] == "--port" && int.TryParse(args[i + 1], out var p))
+        port = p;
+    if (args[i] == "--token")
+        token = args[i + 1];
+}
+
+Console.WriteLine($"=== NapMLS WS Server ===");
+Console.WriteLine($"Listening on ws://127.0.0.1:{port}");
+Console.WriteLine($"Token: {token}");
 Console.WriteLine();
 
 var server = new NapCatServer(
     host: "127.0.0.1",
-    port: 18080,
-    token: "test-token-123",
+    port: port,
+    token: token,
     logger: logger);
 
 server.OnConnectionChanged += connected =>
 {
     Console.WriteLine(connected
-        ? "[Server] ✅ NapCat CONNECTED"
-        : "[Server] ❌ NapCat DISCONNECTED");
+        ? "[Server] NapCat CONNECTED"
+        : "[Server] NapCat DISCONNECTED");
 };
 
 server.OnEventReceived += async json =>
@@ -32,7 +43,7 @@ server.OnEventReceived += async json =>
     var evt = OneBotParser.ParseEvent(json);
     if (evt == null)
     {
-        Console.WriteLine($"[Server] ⚠️ Failed to parse event: {json[..Math.Min(300, json.Length)]}");
+        Console.WriteLine($"[Server] Failed to parse event: {json[..Math.Min(300, json.Length)]}");
         return;
     }
 
@@ -45,7 +56,6 @@ server.OnEventReceived += async json =>
         {
             server.RecordHeartbeat();
         }
-        // Suppress heartbeat spam in console — only log lifecycle
         else
         {
             Console.WriteLine($"[Server] Lifecycle: {evt.SubType}");
@@ -54,22 +64,21 @@ server.OnEventReceived += async json =>
     else if (evt.MessageType == "group")
     {
         var sender = OneBotParser.ParseSender(evt.Sender);
-        Console.WriteLine($"[Server] 📨 Group {evt.GroupId} from {sender?.Nickname ?? "?"}({evt.UserId}): {text}");
+        Console.WriteLine($"[Server] Group {evt.GroupId} from {sender?.Nickname ?? "?"}({evt.UserId}): {text}");
 
         if (OneBotParser.IsMlsMessage(text))
         {
-            Console.WriteLine($"[Server] 🔒 MLS message detected, length={text.Length}");
+            Console.WriteLine($"[Server] MLS message detected, length={text.Length}");
         }
     }
     else if (evt.MessageType == "private")
     {
         var sender = OneBotParser.ParseSender(evt.Sender);
-        Console.WriteLine($"[Server] 📨 Private from {sender?.Nickname ?? "?"}({evt.UserId}): {text}");
+        Console.WriteLine($"[Server] Private from {sender?.Nickname ?? "?"}({evt.UserId}): {text}");
     }
     else
     {
-        Console.WriteLine($"[Server] ⚠️ Unknown message_type={evt.MessageType}");
-        Console.WriteLine($"[Server]    Raw: {json[..Math.Min(200, json.Length)]}");
+        Console.WriteLine($"[Server] Unknown message_type={evt.MessageType}");
     }
 };
 
