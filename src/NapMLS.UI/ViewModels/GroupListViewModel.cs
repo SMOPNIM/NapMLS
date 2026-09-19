@@ -102,6 +102,7 @@ public partial class GroupListViewModel : ViewModelBase
         {
             AvailablePeers = { },
         };
+        wizard.SetBridge(_bridge);
         foreach (var sp in selectablePeers)
             wizard.AvailablePeers.Add(sp);
 

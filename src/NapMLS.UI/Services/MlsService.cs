@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -17,7 +18,7 @@ public sealed class MlsService : IDisposable
     private bool _disposed;
     private string? _username;
     private byte[]? _fingerprint;
-    private readonly Dictionary<string, IntPtr> _groups = new();
+    private readonly ConcurrentDictionary<string, IntPtr> _groups = new();
 
     private MlsService(IntPtr provider, IntPtr identity)
     {
@@ -244,7 +245,7 @@ public sealed class MlsService : IDisposable
     /// <summary>Remove a group from the local handle cache and free its FFI handle.</summary>
     public void RemoveGroup(string groupIdHex)
     {
-        if (_groups.Remove(groupIdHex, out var group))
+        if (_groups.TryRemove(groupIdHex, out var group))
             NapMlsNative.napmls_group_free(group);
     }
 

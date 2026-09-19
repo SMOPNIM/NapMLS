@@ -45,6 +45,8 @@ public partial class ChatViewModel : ViewModelBase
 
     public ObservableCollection<MessageViewModel> Messages { get; } = [];
 
+    private string? _currentGroupHash;
+
     public ChatViewModel(NavigationService navigation, MlsService? mls = null, MlsTransportBridge? bridge = null, MessageBus? bus = null, long qqGroupId = 0)
     {
         _navigation = navigation;
@@ -52,30 +54,32 @@ public partial class ChatViewModel : ViewModelBase
         _bridge = bridge;
         _bus = bus;
         _qqGroupId = qqGroupId;
-
-        _messageSubscription = (_mls != null && _bus != null) ? SubscribeMessages() : null;
     }
 
-    private IDisposable? SubscribeMessages()
+    partial void OnGroupIdChanged(string? value)
     {
-        if (_bus == null || GroupId == null) return null;
+        _messageSubscription?.Dispose();
+        _messageSubscription = null;
+        _currentGroupHash = null;
 
-        var groupHash = MessageChunker.ComputeGroupHash(Convert.FromHexString(GroupId));
-
-        return _bus.Subscribe<MessageReceivedEvent>(evt =>
+        if (value != null && _bus != null)
         {
-            if (evt.GroupHash != groupHash)
-                return;
-
-            var senderName = evt.Sender.ToString();
-            var plaintext = Encoding.UTF8.GetString(evt.Plaintext);
-
-            Dispatcher.UIThread.Post(() =>
+            _currentGroupHash = MessageChunker.ComputeGroupHash(Convert.FromHexString(value));
+            _messageSubscription = _bus.Subscribe<MessageReceivedEvent>(evt =>
             {
-                AddMessage(senderName, plaintext, isOwn: false, encrypted: true, status: "已解密");
-                Epoch = (int)evt.Epoch;
+                if (evt.GroupHash != _currentGroupHash)
+                    return;
+
+                var senderName = evt.Sender.ToString();
+                var plaintext = Encoding.UTF8.GetString(evt.Plaintext);
+
+                Dispatcher.UIThread.Post(() =>
+                {
+                    AddMessage(senderName, plaintext, isOwn: false, encrypted: true, status: "已解密");
+                    Epoch = (int)evt.Epoch;
+                });
             });
-        });
+        }
     }
 
     [RelayCommand]

@@ -10,8 +10,8 @@ namespace NapMLS.UI.ViewModels;
 /// P1d-3d: 4-step wizard for creating an MLS subgroup.
 ///   Step 1: Select QQ group
 ///   Step 2: Select trusted members
-///   Step 3: Mock KeyPackage exchange
-///   Step 4: Confirm & create
+///   Step 3: Real KeyPackage exchange via FFI
+///   Step 4: Confirm & create + AddMembers + send Welcome
 /// </summary>
 public partial class CreateSubgroupViewModel : ViewModelBase
 {
@@ -19,6 +19,10 @@ public partial class CreateSubgroupViewModel : ViewModelBase
     private readonly string _dbPath;
     private readonly NavigationService _navigation;
     private readonly MlsService? _mls;
+    private MlsTransportBridge? _bridge;
+
+    // Collected peer KeyPackages for AddMembers
+    private readonly Dictionary<string, byte[]> _collectedKeyPackages = new();
 
     [ObservableProperty]
     public partial int CurrentStep { get; set; } = 1;
@@ -69,6 +73,9 @@ public partial class CreateSubgroupViewModel : ViewModelBase
         QqGroups.Add(new QqGroupOption { QqGroupId = 10002, Name = "项目协作群" });
         QqGroups.Add(new QqGroupOption { QqGroupId = 10003, Name = "核心团队" });
     }
+
+    /// <summary>Set the bridge reference for sending KP/Welcome via NapCat.</summary>
+    public void SetBridge(MlsTransportBridge? bridge) => _bridge = bridge;
 
     partial void OnCurrentStepChanged(int value)
     {
@@ -136,23 +143,39 @@ public partial class CreateSubgroupViewModel : ViewModelBase
         try
         {
             var groupId = _mls.CreateGroup(GroupName);
-            if (groupId != null)
-            {
-                // Save binding for UI metadata
-                _storage.UpsertGroupBinding(new Core.GroupBinding
-                {
-                    GroupId = Convert.FromHexString(groupId),
-                    QqGroupId = SelectedQqGroup.QqGroupId.ToString(),
-                    DisplayName = GroupName,
-                });
-
-                await Task.Delay(100);
-                _navigation.GoBack();
-            }
-            else
+            if (groupId == null)
             {
                 ErrorMessage = "创建群组失败";
+                return;
             }
+
+            _storage.UpsertGroupBinding(new Core.GroupBinding
+            {
+                GroupId = Convert.FromHexString(groupId),
+                QqGroupId = SelectedQqGroup.QqGroupId.ToString(),
+                DisplayName = GroupName,
+            });
+
+            // Add members with collected KeyPackages
+            var kps = _collectedKeyPackages.Values.ToArray();
+            if (kps.Length > 0)
+            {
+                var welcomeBytes = _mls.AddMembers(groupId, kps);
+                if (welcomeBytes != null && _bridge != null)
+                {
+                    // Send Welcome to each selected member via private chat
+                    foreach (var peer in SelectedMembers)
+                    {
+                        if (long.TryParse(peer.QqNumber, out var peerQq))
+                        {
+                            await _bridge.SendWelcomeAsync(peerQq, SelectedQqGroup.QqGroupId, welcomeBytes);
+                            Console.WriteLine($"[Wizard] Sent Welcome to {peer.Nickname} ({peerQq})");
+                        }
+                    }
+                }
+            }
+
+            _navigation.GoBack();
         }
         catch (Exception ex)
         {
@@ -163,18 +186,59 @@ public partial class CreateSubgroupViewModel : ViewModelBase
     private async void StartKeyPackageExchange()
     {
         IsExchangeRunning = true;
+        _collectedKeyPackages.Clear();
         ExchangeTotal = SelectedMembers.Count;
         ExchangeProgress = 0;
 
-        foreach (var peer in AvailablePeers.Where(p => p.IsSelected))
+        foreach (var peer in SelectedMembers)
         {
             ExchangeStatus = $"正在与 {peer.Nickname} ({peer.QqNumber}) 交换密钥包...";
-            await Task.Delay(500); // Mock network delay
-            peer.KeyPackageReady = true;
+
+            // Check if we already have this peer's KP from a previous exchange
+            var existingPeer = _storage.GetPeer(peer.QqNumber);
+            if (existingPeer?.KeyPackage != null)
+            {
+                _collectedKeyPackages[peer.QqNumber] = existingPeer.KeyPackage;
+                peer.KeyPackageReady = true;
+                ExchangeProgress++;
+                ExchangeStatus = $"{peer.Nickname} 密钥包已就绪 (缓存)";
+                await Task.Delay(100);
+                continue;
+            }
+
+            // Generate our own KP and optionally send it to the peer
+            var myKp = _mls?.GenerateKeyPackage();
+            if (myKp != null && _bridge != null && long.TryParse(peer.QqNumber, out var peerQq))
+            {
+                await _bridge.SendKeyPackageAsync(peerQq, myKp);
+                ExchangeStatus = $"已发送密钥包给 {peer.Nickname}，等待回复...";
+            }
+            else
+            {
+                ExchangeStatus = $"等待 {peer.Nickname} 发送密钥包...";
+            }
+
+            // Poll storage for up to 15 seconds
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(500);
+                var peerData = _storage.GetPeer(peer.QqNumber);
+                if (peerData?.KeyPackage != null)
+                {
+                    _collectedKeyPackages[peer.QqNumber] = peerData.KeyPackage;
+                    peer.KeyPackageReady = true;
+                    break;
+                }
+            }
+
             ExchangeProgress++;
         }
 
-        ExchangeStatus = $"密钥交换完成，共 {ExchangeTotal} 位成员";
+        var readyCount = _collectedKeyPackages.Count;
+        ExchangeStatus = readyCount == SelectedMembers.Count
+            ? $"密钥交换完成，共 {readyCount} 位成员"
+            : $"密钥交换完成，{readyCount}/{SelectedMembers.Count} 位成员就绪（未就绪成员将被跳过）";
         IsExchangeRunning = false;
         CurrentStep = 4;
     }

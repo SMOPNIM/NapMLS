@@ -137,16 +137,21 @@ public sealed class MlsTransportBridge : IDisposable
 
     private void HandleInboundPrivateMessage(string text, OneBotEvent evt)
     {
-        // [MLS:WELCOME:...] — auto-join group
+        // [MLS:WELCOME:<qqGroupId>]base64 — auto-join group with QQ binding
         if (text.StartsWith("[MLS:WELCOME:", StringComparison.Ordinal))
         {
             Console.WriteLine($"[Bridge] Welcome received from {evt.UserId}, joining group...");
 
             try
             {
-                // Extract base64 payload after the closing bracket
                 var bracketEnd = text.IndexOf(']');
                 if (bracketEnd < 0) return;
+
+                var header = text[13..bracketEnd]; // after "[MLS:WELCOME:" up to "]"
+                long qqGroupId = 0;
+                if (long.TryParse(header, out var parsed))
+                    qqGroupId = parsed;
+
                 var payload = text[(bracketEnd + 1)..];
                 var welcomeBytes = Convert.FromBase64String(payload);
 
@@ -154,6 +159,18 @@ public sealed class MlsTransportBridge : IDisposable
                 if (groupIdHex != null)
                 {
                     Console.WriteLine($"[Bridge] Joined group {groupIdHex}");
+
+                    if (qqGroupId > 0)
+                    {
+                        _storage.UpsertGroupBinding(new GroupBinding
+                        {
+                            GroupId = Convert.FromHexString(groupIdHex),
+                            QqGroupId = qqGroupId.ToString(),
+                            DisplayName = $"QQ {qqGroupId} 加密子群",
+                        });
+                        Console.WriteLine($"[Bridge] Bound group {groupIdHex} to QQ group {qqGroupId}");
+                    }
+
                     RebuildHashMap();
                     OnGroupJoined?.Invoke(groupIdHex);
                 }
@@ -169,10 +186,26 @@ public sealed class MlsTransportBridge : IDisposable
             return;
         }
 
-        // [MLS:KP:...] — KeyPackage exchange (log only)
+        // [MLS:KP:<base64(KP)>] — KeyPackage exchange: save to trusted_peers
         if (text.StartsWith("[MLS:KP:", StringComparison.Ordinal))
         {
             Console.WriteLine($"[Bridge] KeyPackage received from {evt.UserId}");
+
+            try
+            {
+                var bracketEnd = text.IndexOf(']');
+                if (bracketEnd < 0) return;
+                var payload = text[(bracketEnd + 1)..];
+                var kpBytes = Convert.FromBase64String(payload);
+
+                var senderQq = evt.UserId.ToString();
+                _storage.SetKeyPackage(senderQq, kpBytes);
+                Console.WriteLine($"[Bridge] Saved KeyPackage for {senderQq} ({kpBytes.Length} bytes)");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Bridge] KeyPackage parse error: {ex.Message}");
+            }
             return;
         }
 
@@ -212,6 +245,20 @@ public sealed class MlsTransportBridge : IDisposable
     public async Task<bool> SendPrivateAsync(long userId, string text, CancellationToken ct = default)
     {
         return await _server.SendPrivateMessageAsync(userId, text, ct);
+    }
+
+    /// <summary>Send a Welcome message to a user via private chat, prefixed with QQ group ID.</summary>
+    public async Task<bool> SendWelcomeAsync(long userId, long qqGroupId, byte[] welcomeBytes, CancellationToken ct = default)
+    {
+        var payload = $"[MLS:WELCOME:{qqGroupId}]{Convert.ToBase64String(welcomeBytes)}";
+        return await _server.SendPrivateMessageAsync(userId, payload, ct);
+    }
+
+    /// <summary>Send a KeyPackage to a user via private chat.</summary>
+    public async Task<bool> SendKeyPackageAsync(long userId, byte[] keyPackageBytes, CancellationToken ct = default)
+    {
+        var payload = $"[MLS:KP:]{Convert.ToBase64String(keyPackageBytes)}";
+        return await _server.SendPrivateMessageAsync(userId, payload, ct);
     }
 
     public void Dispose()
