@@ -5,6 +5,7 @@ namespace NapMLS.IntegrationTests;
 /// <summary>
 /// P/Invoke bindings for napmls-ffi.dll
 /// All memory returned from Rust MUST be freed via the corresponding free function.
+/// Length params use nuint to match Rust's usize (8 bytes on x64).
 /// </summary>
 internal static partial class NativeMethods
 {
@@ -14,7 +15,7 @@ internal static partial class NativeMethods
     public struct NapMlsBytes
     {
         public IntPtr ptr;
-        public int len;
+        public nuint len;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -45,8 +46,8 @@ internal static partial class NativeMethods
     {
         if (bytes.ptr == IntPtr.Zero || bytes.len == 0)
             return [];
-        var result = new byte[bytes.len];
-        Marshal.Copy(bytes.ptr, result, 0, bytes.len);
+        var result = new byte[(int)bytes.len];
+        Marshal.Copy(bytes.ptr, result, 0, (int)bytes.len);
         return result;
     }
 
@@ -61,7 +62,7 @@ internal static partial class NativeMethods
     }
 
     [LibraryImport(LibName)]
-    public static unsafe partial int napmls_init(byte* encryptionKey, int keyLen);
+    public static unsafe partial int napmls_init(byte* encryptionKey, nuint keyLen);
 
     [LibraryImport(LibName)]
     public static unsafe partial IntPtr napmls_provider_new(NapMlsError* outError);
@@ -73,7 +74,7 @@ internal static partial class NativeMethods
     public static unsafe partial int napmls_create_identity(
         IntPtr provider,
         byte* name,
-        int nameLen,
+        nuint nameLen,
         IntPtr* outIdentity,
         NapMlsError* outError);
 
@@ -85,7 +86,7 @@ internal static partial class NativeMethods
         IntPtr provider,
         IntPtr identity,
         byte* groupName,
-        int groupNameLen,
+        nuint groupNameLen,
         IntPtr* outGroup,
         NapMlsError* outError);
 
@@ -96,7 +97,7 @@ internal static partial class NativeMethods
     public static unsafe partial int napmls_load_group(
         IntPtr provider,
         byte* groupId,
-        int groupIdLen,
+        nuint groupIdLen,
         IntPtr* outGroup,
         NapMlsError* outError);
 
@@ -119,7 +120,7 @@ internal static partial class NativeMethods
         IntPtr group,
         IntPtr identity,
         byte* keyPackageData,
-        int keyPackageLen,
+        nuint keyPackageLen,
         NapMlsBytes* outWelcome,
         NapMlsError* outError);
 
@@ -127,7 +128,7 @@ internal static partial class NativeMethods
     public static unsafe partial int napmls_process_welcome(
         IntPtr provider,
         byte* welcomeData,
-        int welcomeLen,
+        nuint welcomeLen,
         IntPtr* outGroup,
         NapMlsError* outError);
 
@@ -137,7 +138,7 @@ internal static partial class NativeMethods
         IntPtr group,
         IntPtr identity,
         byte* plaintext,
-        int plaintextLen,
+        nuint plaintextLen,
         NapMlsBytes* outCiphertext,
         NapMlsError* outError);
 
@@ -146,7 +147,7 @@ internal static partial class NativeMethods
         IntPtr provider,
         IntPtr group,
         byte* ciphertext,
-        int ciphertextLen,
+        nuint ciphertextLen,
         NapMlsBytes* outPlaintext,
         NapMlsError* outError);
 
@@ -168,7 +169,7 @@ internal static partial class NativeMethods
     public static unsafe partial int napmls_find_member_by_name(
         IntPtr group,
         byte* name,
-        int nameLen,
+        nuint nameLen,
         uint* outLeafIndex,
         NapMlsError* outError);
 
@@ -221,7 +222,7 @@ internal static partial class NativeMethods
     public static unsafe partial int napmls_register_identity(
         IntPtr provider,
         byte* username,
-        int usernameLen,
+        nuint usernameLen,
         IntPtr identity,
         NapMlsError* outError);
 
@@ -229,7 +230,7 @@ internal static partial class NativeMethods
     public static unsafe partial int napmls_load_identity(
         IntPtr provider,
         byte* username,
-        int usernameLen,
+        nuint usernameLen,
         IntPtr* outIdentity,
         NapMlsError* outError);
 }

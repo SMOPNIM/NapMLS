@@ -86,11 +86,6 @@
                                         <TextBlock Text="{Binding StatusText}"
                                                    FontSize="11" Foreground="White" />
                                     </Border>
-                                    <Button Content="mock KP"
-                                            Command="{Binding $parent[ItemsControl].((vm:TrustManagerViewModel)DataContext).MockReceiveKeyPackageCommand}"
-                                            CommandParameter="{Binding QqNumber}"
-                                            FontSize="11" Height="24"
-                                            IsVisible="{Binding !IsVerified}" />
                                     <Button Content="删除"
                                             Command="{Binding $parent[ItemsControl].((vm:TrustManagerViewModel)DataContext).RemovePeerCommand}"
                                             CommandParameter="{Binding QqNumber}"

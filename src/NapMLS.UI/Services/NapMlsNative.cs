@@ -5,6 +5,7 @@ namespace NapMLS.UI.Services;
 /// <summary>
 /// P/Invoke bindings for napmls_ffi.dll used by the UI.
 /// Signatures MUST match native/napmls-ffi/src/ffi.rs exactly.
+/// Length params use nuint to match Rust's usize (8 bytes on x64).
 /// </summary>
 internal static partial class NapMlsNative
 {
@@ -14,7 +15,7 @@ internal static partial class NapMlsNative
     public struct NapMlsBytes
     {
         public IntPtr ptr;
-        public int len;
+        public nuint len;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -30,8 +31,8 @@ internal static partial class NapMlsNative
     public static byte[] ReadBytes(NapMlsBytes bytes)
     {
         if (bytes.ptr == IntPtr.Zero || bytes.len == 0) return [];
-        var result = new byte[bytes.len];
-        Marshal.Copy(bytes.ptr, result, 0, bytes.len);
+        var result = new byte[(int)bytes.len];
+        Marshal.Copy(bytes.ptr, result, 0, (int)bytes.len);
         return result;
     }
 
@@ -47,7 +48,7 @@ internal static partial class NapMlsNative
 
     // --- Init ---
     [LibraryImport(LibName)]
-    public static unsafe partial int napmls_init(byte* encryptionKey, int keyLen);
+    public static unsafe partial int napmls_init(byte* encryptionKey, nuint keyLen);
 
     // --- Provider ---
     [LibraryImport(LibName)]
@@ -60,17 +61,17 @@ internal static partial class NapMlsNative
     // --- Identity ---
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_create_identity(
-        IntPtr provider, byte* name, int nameLen,
+        IntPtr provider, byte* name, nuint nameLen,
         IntPtr* outIdentity, NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_load_identity(
-        IntPtr provider, byte* username, int usernameLen,
+        IntPtr provider, byte* username, nuint usernameLen,
         IntPtr* outIdentity, NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_register_identity(
-        IntPtr provider, byte* username, int usernameLen,
+        IntPtr provider, byte* username, nuint usernameLen,
         IntPtr identity, NapMlsError* outError);
 
     [LibraryImport(LibName)]
@@ -84,12 +85,12 @@ internal static partial class NapMlsNative
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_create_group(
         IntPtr provider, IntPtr identity,
-        byte* groupName, int groupNameLen,
+        byte* groupName, nuint groupNameLen,
         IntPtr* outGroup, NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_load_group(
-        IntPtr provider, byte* groupId, int groupIdLen,
+        IntPtr provider, byte* groupId, nuint groupIdLen,
         IntPtr* outGroup, NapMlsError* outError);
 
     [LibraryImport(LibName)]
@@ -115,13 +116,13 @@ internal static partial class NapMlsNative
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_encrypt(
         IntPtr provider, IntPtr group, IntPtr identity,
-        byte* plaintext, int plaintextLen,
+        byte* plaintext, nuint plaintextLen,
         NapMlsBytes* outCiphertext, NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_decrypt(
         IntPtr provider, IntPtr group,
-        byte* ciphertext, int ciphertextLen,
+        byte* ciphertext, nuint ciphertextLen,
         NapMlsBytes* outPlaintext, NapMlsError* outError);
 
     // --- Key Packages ---
@@ -134,13 +135,13 @@ internal static partial class NapMlsNative
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_add_members(
         IntPtr provider, IntPtr group, IntPtr identity,
-        byte* keyPackageData, int keyPackageLen,
+        byte* keyPackageData, nuint keyPackageLen,
         NapMlsBytes* outWelcome, NapMlsError* outError);
 
     [LibraryImport(LibName)]
     public static unsafe partial int napmls_process_welcome(
         IntPtr provider,
-        byte* welcomeData, int welcomeLen,
+        byte* welcomeData, nuint welcomeLen,
         IntPtr* outGroup, NapMlsError* outError);
 
     [LibraryImport(LibName)]

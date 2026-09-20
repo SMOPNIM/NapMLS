@@ -19,6 +19,7 @@ public sealed class MlsService : IDisposable
     private string? _username;
     private byte[]? _fingerprint;
     private readonly ConcurrentDictionary<string, IntPtr> _groups = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _groupLocks = new();
 
     private MlsService(IntPtr provider, IntPtr identity)
     {
@@ -33,7 +34,7 @@ public sealed class MlsService : IDisposable
         {
             fixed (byte* keyPtr = encryptionKey)
             {
-                initResult = NapMlsNative.napmls_init(keyPtr, encryptionKey.Length);
+                initResult = NapMlsNative.napmls_init(keyPtr, (nuint)encryptionKey.Length);
             }
         }
 
@@ -63,7 +64,7 @@ public sealed class MlsService : IDisposable
                 error = new NapMlsNative.NapMlsError();
                 fixed (byte* namePtr = nameBytes)
                 {
-                    var rc = NapMlsNative.napmls_load_identity(provider, namePtr, nameBytes.Length, &identity, &error);
+                    var rc = NapMlsNative.napmls_load_identity(provider, namePtr, (nuint)nameBytes.Length, &identity, &error);
                     if (rc != NapMlsNative.NAPMLS_OK)
                     {
                         NapMlsNative.napmls_free_error(error);
@@ -93,7 +94,7 @@ public sealed class MlsService : IDisposable
                 fixed (byte* pId = groupIdBytes)
                 {
                     IntPtr group;
-                    var rc = NapMlsNative.napmls_load_group(_provider, pId, groupIdBytes.Length, &group, null);
+                    var rc = NapMlsNative.napmls_load_group(_provider, pId, (nuint)groupIdBytes.Length, &group, null);
                     if (rc == NapMlsNative.NAPMLS_OK && group != IntPtr.Zero)
                         _groups[info.group_id] = group;
                 }
@@ -118,7 +119,7 @@ public sealed class MlsService : IDisposable
         {
             fixed (byte* namePtr = nameBytes)
             {
-                var rc = NapMlsNative.napmls_create_identity(_provider, namePtr, nameBytes.Length, &identity, &error);
+                var rc = NapMlsNative.napmls_create_identity(_provider, namePtr, (nuint)nameBytes.Length, &identity, &error);
                 if (rc != NapMlsNative.NAPMLS_OK)
                 {
                     NapMlsNative.napmls_free_error(error);
@@ -135,7 +136,7 @@ public sealed class MlsService : IDisposable
         {
             fixed (byte* namePtr = nameBytes)
             {
-                NapMlsNative.napmls_register_identity(_provider, namePtr, nameBytes.Length, _identity, &error);
+                NapMlsNative.napmls_register_identity(_provider, namePtr, (nuint)nameBytes.Length, _identity, &error);
             }
         }
 
@@ -160,7 +161,7 @@ public sealed class MlsService : IDisposable
         {
             fixed (byte* namePtr = nameBytes)
             {
-                var rc = NapMlsNative.napmls_load_identity(_provider, namePtr, nameBytes.Length, &identity, &error);
+                var rc = NapMlsNative.napmls_load_identity(_provider, namePtr, (nuint)nameBytes.Length, &identity, &error);
                 if (rc != NapMlsNative.NAPMLS_OK)
                 {
                     NapMlsNative.napmls_free_error(error);
@@ -187,7 +188,7 @@ public sealed class MlsService : IDisposable
             fixed (byte* namePtr = nameBytes)
             {
                 var rc = NapMlsNative.napmls_create_group(
-                    _provider, _identity, namePtr, nameBytes.Length, &group, &error);
+                    _provider, _identity, namePtr, (nuint)nameBytes.Length, &group, &error);
                 if (rc != NapMlsNative.NAPMLS_OK)
                 {
                     NapMlsNative.napmls_free_error(error);
@@ -220,7 +221,7 @@ public sealed class MlsService : IDisposable
             {
                 var error = new NapMlsNative.NapMlsError();
                 var rc = NapMlsNative.napmls_process_welcome(
-                    _provider, pWelcome, welcomeData.Length, &group, &error);
+                    _provider, pWelcome, (nuint)welcomeData.Length, &group, &error);
                 if (rc != NapMlsNative.NAPMLS_OK || group == IntPtr.Zero)
                 {
                     NapMlsNative.napmls_free_error(error);
@@ -247,7 +248,11 @@ public sealed class MlsService : IDisposable
     {
         if (_groups.TryRemove(groupIdHex, out var group))
             NapMlsNative.napmls_group_free(group);
+        _groupLocks.TryRemove(groupIdHex, out _);
     }
+
+    private SemaphoreSlim GetGroupLock(string groupIdHex) =>
+        _groupLocks.GetOrAdd(groupIdHex, _ => new SemaphoreSlim(1, 1));
 
     /// <summary>Last error from Open(). NAPMLS_ERR_KEY_MISMATCH = wrong password.</summary>
     public static int LastOpenError { get; private set; }
@@ -271,8 +276,8 @@ public sealed class MlsService : IDisposable
 
         try
         {
-            var result = new byte[bytes.len];
-            Marshal.Copy(bytes.ptr, result, 0, bytes.len);
+            var result = new byte[(int)bytes.len];
+            Marshal.Copy(bytes.ptr, result, 0, (int)bytes.len);
             return result;
         }
         finally
@@ -285,7 +290,13 @@ public sealed class MlsService : IDisposable
     public byte[]? AddMembers(string groupIdHex, byte[][] keyPackages)
     {
         if (_disposed || _provider == IntPtr.Zero || _identity == IntPtr.Zero) return null;
-        if (!_groups.TryGetValue(groupIdHex, out var group)) return null;
+        if (!_groups.TryGetValue(groupIdHex, out var group))
+        {
+            Console.WriteLine($"[MlsService] AddMembers: group {groupIdHex} NOT FOUND in _groups");
+            return null;
+        }
+
+        Console.WriteLine($"[MlsService] AddMembers: group={group}, kps={keyPackages.Length}");
 
         // Wire format: [count:4][len1:4][kp1..][len2:4][kp2..]...
         var totalLen = 4;
@@ -309,19 +320,29 @@ public sealed class MlsService : IDisposable
             {
                 var rc = NapMlsNative.napmls_add_members(
                     _provider, group, _identity,
-                    pData, allData.Length, &outWelcome, &error);
+                    pData, (nuint)allData.Length, &outWelcome, &error);
                 if (rc != NapMlsNative.NAPMLS_OK)
                 {
+                    Console.WriteLine($"[MlsService] AddMembers FAILED: rc={rc}");
                     NapMlsNative.napmls_free_error(error);
                     return null;
                 }
+                Console.WriteLine($"[MlsService] AddMembers OK: welcome_len={outWelcome.len}");
             }
+        }
+
+        // Read epoch after AddMembers to verify it advanced
+        unsafe
+        {
+            ulong epoch = 0;
+            var eRc = NapMlsNative.napmls_group_epoch(group, &epoch, null);
+            Console.WriteLine($"[MlsService] AddMembers: epoch after add={epoch} (rc={eRc})");
         }
 
         try
         {
-            var result = new byte[outWelcome.len];
-            Marshal.Copy(outWelcome.ptr, result, 0, outWelcome.len);
+            var result = new byte[(int)outWelcome.len];
+            Marshal.Copy(outWelcome.ptr, result, 0, (int)outWelcome.len);
             return result;
         }
         finally
@@ -334,36 +355,41 @@ public sealed class MlsService : IDisposable
     {
         if (_disposed || _provider == IntPtr.Zero || _identity == IntPtr.Zero) return null;
         if (!_groups.TryGetValue(groupIdHex, out var group)) return null;
+        if (group == IntPtr.Zero) return null;
 
-        var msgBytes = Encoding.UTF8.GetBytes(plaintext);
-        var error = new NapMlsNative.NapMlsError();
-        var outBytes = new NapMlsNative.NapMlsBytes();
-
-        unsafe
-        {
-            fixed (byte* mPtr = msgBytes)
-            {
-                var rc = NapMlsNative.napmls_encrypt(
-                    _provider, group, _identity,
-                    mPtr, msgBytes.Length, &outBytes, &error);
-
-                if (rc != NapMlsNative.NAPMLS_OK)
-                {
-                    NapMlsNative.napmls_free_error(error);
-                    return null;
-                }
-            }
-        }
-
+        var sem = GetGroupLock(groupIdHex);
+        sem.Wait();
         try
         {
-            var result = new byte[outBytes.len];
-            Marshal.Copy(outBytes.ptr, result, 0, outBytes.len);
+            var msgBytes = Encoding.UTF8.GetBytes(plaintext);
+            var error = new NapMlsNative.NapMlsError();
+            var outBytes = new NapMlsNative.NapMlsBytes();
+
+            unsafe
+            {
+                fixed (byte* mPtr = msgBytes)
+                {
+                    var rc = NapMlsNative.napmls_encrypt(
+                        _provider, group, _identity,
+                        mPtr, (nuint)msgBytes.Length, &outBytes, &error);
+
+                    if (rc != NapMlsNative.NAPMLS_OK)
+                    {
+                        NapMlsNative.napmls_free_error(error);
+                        Console.WriteLine($"[MlsService] Encrypt failed: rc={rc}");
+                        return null;
+                    }
+                }
+            }
+
+            var result = new byte[(int)outBytes.len];
+            Marshal.Copy(outBytes.ptr, result, 0, (int)outBytes.len);
+            NapMlsNative.napmls_free_bytes(outBytes);
             return result;
         }
         finally
         {
-            NapMlsNative.napmls_free_bytes(outBytes);
+            sem.Release();
         }
     }
 
@@ -371,35 +397,39 @@ public sealed class MlsService : IDisposable
     {
         if (_disposed || _provider == IntPtr.Zero || _identity == IntPtr.Zero) return null;
         if (!_groups.TryGetValue(groupIdHex, out var group)) return null;
+        if (group == IntPtr.Zero) return null;
 
-        var error = new NapMlsNative.NapMlsError();
-        var outBytes = new NapMlsNative.NapMlsBytes();
-
-        unsafe
-        {
-            fixed (byte* cPtr = ciphertext)
-            {
-                var rc = NapMlsNative.napmls_decrypt(
-                    _provider, group,
-                    cPtr, ciphertext.Length, &outBytes, &error);
-
-                if (rc != NapMlsNative.NAPMLS_OK)
-                {
-                    NapMlsNative.napmls_free_error(error);
-                    return null;
-                }
-            }
-        }
-
+        var sem = GetGroupLock(groupIdHex);
+        sem.Wait();
         try
         {
-            var data = new byte[outBytes.len];
-            Marshal.Copy(outBytes.ptr, data, 0, outBytes.len);
+            var error = new NapMlsNative.NapMlsError();
+            var outBytes = new NapMlsNative.NapMlsBytes();
+
+            unsafe
+            {
+                fixed (byte* cPtr = ciphertext)
+                {
+                    var rc = NapMlsNative.napmls_decrypt(
+                        _provider, group,
+                        cPtr, (nuint)ciphertext.Length, &outBytes, &error);
+
+                    if (rc != NapMlsNative.NAPMLS_OK)
+                    {
+                        NapMlsNative.napmls_free_error(error);
+                        return null;
+                    }
+                }
+            }
+
+            var data = new byte[(int)outBytes.len];
+            Marshal.Copy(outBytes.ptr, data, 0, (int)outBytes.len);
+            NapMlsNative.napmls_free_bytes(outBytes);
             return Encoding.UTF8.GetString(data);
         }
         finally
         {
-            NapMlsNative.napmls_free_bytes(outBytes);
+            sem.Release();
         }
     }
 
@@ -407,12 +437,22 @@ public sealed class MlsService : IDisposable
     {
         if (_disposed || _provider == IntPtr.Zero || _identity == IntPtr.Zero) return 0;
         if (!_groups.TryGetValue(groupIdHex, out var group)) return 0;
+        if (group == IntPtr.Zero) return 0;
 
-        unsafe
+        var sem = GetGroupLock(groupIdHex);
+        sem.Wait();
+        try
         {
-            ulong epoch = 0;
-            var rc = NapMlsNative.napmls_group_epoch(group, &epoch, null);
-            return rc == NapMlsNative.NAPMLS_OK ? (int)epoch : 0;
+            unsafe
+            {
+                ulong epoch = 0;
+                var rc = NapMlsNative.napmls_group_epoch(group, &epoch, null);
+                return rc == NapMlsNative.NAPMLS_OK ? (int)epoch : 0;
+            }
+        }
+        finally
+        {
+            sem.Release();
         }
     }
 
@@ -420,12 +460,22 @@ public sealed class MlsService : IDisposable
     {
         if (_disposed || _provider == IntPtr.Zero) return 0;
         if (!_groups.TryGetValue(groupIdHex, out var group)) return 0;
+        if (group == IntPtr.Zero) return 0;
 
-        unsafe
+        var sem = GetGroupLock(groupIdHex);
+        sem.Wait();
+        try
         {
-            uint count = 0;
-            var rc = NapMlsNative.napmls_group_member_count(group, &count, null);
-            return rc == NapMlsNative.NAPMLS_OK ? (int)count : 0;
+            unsafe
+            {
+                uint count = 0;
+                var rc = NapMlsNative.napmls_group_member_count(group, &count, null);
+                return rc == NapMlsNative.NAPMLS_OK ? (int)count : 0;
+            }
+        }
+        finally
+        {
+            sem.Release();
         }
     }
 
@@ -443,8 +493,8 @@ public sealed class MlsService : IDisposable
 
             try
             {
-                var data = new byte[bytes.len];
-                Marshal.Copy(bytes.ptr, data, 0, bytes.len);
+                var data = new byte[(int)bytes.len];
+                Marshal.Copy(bytes.ptr, data, 0, (int)bytes.len);
                 var json = Encoding.UTF8.GetString(data);
                 return JsonSerializer.Deserialize<List<MlsGroupInfo>>(json) ?? [];
             }
@@ -476,8 +526,8 @@ public sealed class MlsService : IDisposable
 
         try
         {
-            var idBytes = new byte[bytes.len];
-            Marshal.Copy(bytes.ptr, idBytes, 0, bytes.len);
+            var idBytes = new byte[(int)bytes.len];
+            Marshal.Copy(bytes.ptr, idBytes, 0, (int)bytes.len);
             return Convert.ToHexString(idBytes).ToLowerInvariant();
         }
         finally
@@ -504,8 +554,8 @@ public sealed class MlsService : IDisposable
 
         try
         {
-            var result = new byte[bytes.len];
-            Marshal.Copy(bytes.ptr, result, 0, bytes.len);
+            var result = new byte[(int)bytes.len];
+            Marshal.Copy(bytes.ptr, result, 0, (int)bytes.len);
             return result;
         }
         finally
@@ -521,6 +571,7 @@ public sealed class MlsService : IDisposable
             foreach (var (_, group) in _groups)
                 NapMlsNative.napmls_group_free(group);
             _groups.Clear();
+            _groupLocks.Clear();
 
             if (_identity != IntPtr.Zero) NapMlsNative.napmls_identity_free(_identity);
             if (_provider != IntPtr.Zero) NapMlsNative.napmls_provider_free(_provider);

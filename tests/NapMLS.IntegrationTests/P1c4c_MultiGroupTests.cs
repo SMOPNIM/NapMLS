@@ -9,15 +9,13 @@ namespace NapMLS.IntegrationTests;
 /// </summary>
 public class P1c4c_MultiGroupTests : IAsyncLifetime
 {
-    private byte[] _encryptionKey = null!;
+    private static readonly byte[] _sharedKey = new byte[32];
 
     public Task InitializeAsync()
     {
-        _encryptionKey = new byte[32];
-        Random.Shared.NextBytes(_encryptionKey);
         unsafe
         {
-            fixed (byte* pKey = _encryptionKey)
+            fixed (byte* pKey = _sharedKey)
             {
                 napmls_init(pKey, 32);
             }

@@ -350,46 +350,53 @@ public sealed class NapCatServer : IAsyncDisposable
     /// </summary>
     private void RouteMessage(string json)
     {
+        JsonDocument? doc = null;
         try
         {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            // Check if this is an API response (has both "echo" and "retcode")
-            if (root.TryGetProperty("echo", out var echoProp) &&
-                root.TryGetProperty("retcode", out var retcodeProp))
-            {
-                var echo = echoProp.GetString();
-                if (echo != null && _pendingRequests.TryRemove(echo, out var tcs))
-                {
-                    var response = new OneBotResponse
-                    {
-                        Status = root.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "",
-                        RetCode = retcodeProp.GetInt32(),
-                        Msg = root.TryGetProperty("msg", out var m) ? m.GetString() : null,
-                        Wording = root.TryGetProperty("wording", out var w) ? w.GetString() : null,
-                        Data = root.TryGetProperty("data", out var d) ? d.Clone() : null
-                    };
-                    _logger.LogInformation("API response: echo={Echo}, retcode={RetCode}, status={Status}",
-                        echo, response.RetCode, response.Status);
-                    tcs.TrySetResult(response);
-                    return;
-                }
-                else if (echo != null)
-                {
-                    _logger.LogWarning("Received API response with unknown echo={Echo}", echo);
-                    return;
-                }
-            }
-
-            // Not an API response → fire event
-            OnEventReceived?.Invoke(json);
+            doc = JsonDocument.Parse(json);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to route message, treating as event");
-            OnEventReceived?.Invoke(json);
+            _logger.LogWarning(ex, "Failed to parse message JSON, treating as event");
         }
+
+        if (doc != null)
+        {
+            using (doc)
+            {
+                var root = doc.RootElement;
+
+                // Check if this is an API response (has both "echo" and "retcode")
+                if (root.TryGetProperty("echo", out var echoProp) &&
+                    root.TryGetProperty("retcode", out var retcodeProp))
+                {
+                    var echo = echoProp.GetString();
+                    if (echo != null && _pendingRequests.TryRemove(echo, out var tcs))
+                    {
+                        var response = new OneBotResponse
+                        {
+                            Status = root.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "",
+                            RetCode = retcodeProp.GetInt32(),
+                            Msg = root.TryGetProperty("msg", out var m) ? m.GetString() : null,
+                            Wording = root.TryGetProperty("wording", out var w) ? w.GetString() : null,
+                            Data = root.TryGetProperty("data", out var d) ? d.Clone() : null
+                        };
+                        _logger.LogInformation("API response: echo={Echo}, retcode={RetCode}, status={Status}",
+                            echo, response.RetCode, response.Status);
+                        tcs.TrySetResult(response);
+                        return;
+                    }
+                    else if (echo != null)
+                    {
+                        _logger.LogWarning("Received API response with unknown echo={Echo}", echo);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Not an API response → fire event (exactly once)
+        OnEventReceived?.Invoke(json);
     }
 
     private async Task HeartbeatMonitorAsync(CancellationToken ct)

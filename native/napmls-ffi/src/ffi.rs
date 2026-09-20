@@ -284,8 +284,15 @@ pub extern "C" fn napmls_provider_new_from_file(
 #[no_mangle]
 pub extern "C" fn napmls_provider_free(provider: *mut NapMlsProvider) {
     if !provider.is_null() {
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            unsafe {
+                let _ = Box::from_raw(provider);
+            }
+        }));
+        if result.is_err() {
+            eprintln!("napmls_provider_free: panic during drop");
+        }
         track_free(std::mem::size_of::<NapMlsProvider>());
-        unsafe { drop(Box::from_raw(provider)); }
     }
 }
 
@@ -510,7 +517,7 @@ pub extern "C" fn napmls_create_group(
             .use_ratchet_tree_extension(true)
             .build();
 
-        let mut group = MlsGroup::new(
+        let group = MlsGroup::new(
             provider,
             &identity.signature_keys,
             &config,
@@ -557,8 +564,15 @@ pub extern "C" fn napmls_create_group(
 #[no_mangle]
 pub extern "C" fn napmls_group_free(group: *mut NapMlsGroupHandle) {
     if !group.is_null() {
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            unsafe {
+                let _ = Box::from_raw(group);
+            }
+        }));
+        if result.is_err() {
+            eprintln!("napmls_group_free: panic during drop");
+        }
         track_free(std::mem::size_of::<NapMlsGroupHandle>());
-        unsafe { drop(Box::from_raw(group)); }
     }
 }
 
@@ -623,7 +637,7 @@ pub extern "C" fn napmls_load_group(
 }
 
 /// List all groups in the registry. Returns a JSON array.
-/// Format: [{"group_id":"base64","name":"...","qq_group_id":null,"epoch":0},...]
+/// Format: [{"group_id":"hex","name":"...","qq_group_id":null,"epoch":0},...]
 /// The caller frees via napmls_free_bytes.
 #[no_mangle]
 pub extern "C" fn napmls_list_groups(
@@ -631,8 +645,6 @@ pub extern "C" fn napmls_list_groups(
     out_groups: *mut NapMlsBytes,
     out_error: *mut NapMlsError,
 ) -> i32 {
-    use base64::Engine;
-
     let result = ffi_catch(AssertUnwindSafe(|| {
         if provider.is_null() || out_groups.is_null() {
             return Err(NAPMLS_ERR_NULL_POINTER);
@@ -649,7 +661,7 @@ pub extern "C" fn napmls_list_groups(
         let records = crate::identity_registry::list_groups(&conn)
             .map_err(|_| NAPMLS_ERR_STORAGE)?;
 
-        // Build JSON array
+        // Build JSON array (group_id as lowercase hex, matching GetGroupHandleId convention)
         let mut json = Vec::new();
         json.push(b'[');
         let mut first = true;
@@ -657,14 +669,14 @@ pub extern "C" fn napmls_list_groups(
             if !first { json.push(b','); }
             first = false;
 
-            let gid_b64 = base64::engine::general_purpose::STANDARD.encode(&rec.group_id);
+            let gid_hex: String = rec.group_id.iter().map(|b| format!("{:02x}", b)).collect();
             let qq = match &rec.qq_group_id {
                 Some(q) => format!("\"{}\"", q),
                 None => "null".to_string(),
             };
             let entry = format!(
                 r#"{{"group_id":"{}","name":"{}","qq_group_id":{},"epoch":{}}}"#,
-                gid_b64, rec.name, qq, rec.last_epoch,
+                gid_hex, rec.name, qq, rec.last_epoch,
             );
             json.extend_from_slice(entry.as_bytes());
         }
@@ -892,6 +904,18 @@ pub extern "C" fn napmls_process_welcome(
                 eprintln!("into_group failed: {:?}", e);
                 NAPMLS_ERR_MLS_PROTOCOL
             })?;
+
+        // Register in group registry if file-backed
+        if let Some(db_path) = provider.db_path() {
+            if let Ok(conn) = rusqlite::Connection::open(db_path) {
+                let _ = crate::identity_registry::ensure_group_table(&conn);
+                let group_id = mls_group.group_id().to_vec();
+                let epoch = mls_group.epoch().as_u64();
+                let _ = crate::identity_registry::register_group(
+                    &conn, &group_id, "", None, epoch,
+                );
+            }
+        }
 
         let handle = Box::new(NapMlsGroupHandle { group: mls_group, join_config });
         track_alloc(std::mem::size_of::<NapMlsGroupHandle>());
@@ -1632,5 +1656,95 @@ mod ffi_tests {
         napmls_identity_free(bob_identity);
         napmls_provider_free(alice_provider);
         napmls_provider_free(bob_provider);
+    }
+
+    #[test]
+    fn test_ffi_struct_layout() {
+        use std::mem::size_of;
+
+        // NapMlsBytes: *mut u8 (8) + usize (8) = 16
+        assert_eq!(size_of::<NapMlsBytes>(), 16,
+            "NapMlsBytes must be 16 bytes: ptr(8) + len(8)");
+
+        // NapMlsError: i32 (4) + padding (4) + *mut c_char (8) = 16
+        assert_eq!(size_of::<NapMlsError>(), 16,
+            "NapMlsError must be 16 bytes: code(4) + pad(4) + msg(8)");
+
+        println!("✅ All FFI struct layouts verified: NapMlsBytes=16, NapMlsError=16");
+    }
+
+    #[test]
+    fn test_stress_100_iterations() {
+        use std::time::Instant;
+        init_test();
+
+        let start = Instant::now();
+
+        for i in 0..100 {
+            let alice_provider = napmls_provider_new(ptr::null_mut());
+            let bob_provider = napmls_provider_new(ptr::null_mut());
+
+            let mut alice_identity: *mut NapMlsIdentityHandle = ptr::null_mut();
+            let mut bob_identity: *mut NapMlsIdentityHandle = ptr::null_mut();
+            let alice_name = format!("Alice{}\0", i);
+            let bob_name = format!("Bob{}\0", i);
+            let rc = napmls_create_identity(alice_provider, alice_name.as_ptr(), alice_name.len() - 1, &mut alice_identity, ptr::null_mut());
+            assert_eq!(rc, NAPMLS_OK, "iter {}: create alice identity failed", i);
+            let rc = napmls_create_identity(bob_provider, bob_name.as_ptr(), bob_name.len() - 1, &mut bob_identity, ptr::null_mut());
+            assert_eq!(rc, NAPMLS_OK, "iter {}: create bob identity failed", i);
+
+            let mut alice_group: *mut NapMlsGroupHandle = ptr::null_mut();
+            let group_name = format!("Group{}\0", i);
+            let rc = napmls_create_group(alice_provider, alice_identity, group_name.as_ptr(), group_name.len() - 1, &mut alice_group, ptr::null_mut());
+            assert_eq!(rc, NAPMLS_OK, "iter {}: create_group failed", i);
+
+            let mut kp = NapMlsBytes { ptr: ptr::null_mut(), len: 0 };
+            let rc = napmls_generate_key_package(bob_provider, bob_identity, &mut kp, ptr::null_mut());
+            assert_eq!(rc, NAPMLS_OK, "iter {}: generate_kp failed", i);
+
+            let kp_len = kp.len as u32;
+            let mut multi_kp = Vec::with_capacity(8 + kp.len);
+            multi_kp.extend_from_slice(&1u32.to_le_bytes());
+            multi_kp.extend_from_slice(&kp_len.to_le_bytes());
+            unsafe {
+                let kp_data = std::slice::from_raw_parts(kp.ptr, kp.len);
+                multi_kp.extend_from_slice(kp_data);
+            }
+
+            let mut welcome = NapMlsBytes { ptr: ptr::null_mut(), len: 0 };
+            let rc = napmls_add_members(alice_provider, alice_group, alice_identity, multi_kp.as_ptr(), multi_kp.len(), &mut welcome, ptr::null_mut());
+            assert_eq!(rc, NAPMLS_OK, "iter {}: add_members failed", i);
+            napmls_free_bytes(kp);
+
+            let mut bob_group: *mut NapMlsGroupHandle = ptr::null_mut();
+            let rc = napmls_process_welcome(bob_provider, welcome.ptr, welcome.len, &mut bob_group, ptr::null_mut());
+            assert_eq!(rc, NAPMLS_OK, "iter {}: process_welcome failed", i);
+            napmls_free_bytes(welcome);
+
+            let plaintext = format!("Message number {}", i);
+            let mut cipher = NapMlsBytes { ptr: ptr::null_mut(), len: 0 };
+            let rc = napmls_encrypt(alice_provider, alice_group, alice_identity, plaintext.as_ptr(), plaintext.len(), &mut cipher, ptr::null_mut());
+            assert_eq!(rc, NAPMLS_OK, "iter {}: encrypt failed", i);
+            assert!(cipher.len > 0, "iter {}: cipher empty", i);
+
+            let mut plain = NapMlsBytes { ptr: ptr::null_mut(), len: 0 };
+            let rc = napmls_decrypt(bob_provider, bob_group, cipher.ptr, cipher.len, &mut plain, ptr::null_mut());
+            assert_eq!(rc, NAPMLS_OK, "iter {}: decrypt failed", i);
+
+            let decrypted = unsafe { std::slice::from_raw_parts(plain.ptr, plain.len) };
+            assert_eq!(decrypted, plaintext.as_bytes(), "iter {}: decrypt mismatch", i);
+
+            napmls_free_bytes(cipher);
+            napmls_free_bytes(plain);
+            napmls_group_free(alice_group);
+            napmls_group_free(bob_group);
+            napmls_identity_free(alice_identity);
+            napmls_identity_free(bob_identity);
+            napmls_provider_free(alice_provider);
+            napmls_provider_free(bob_provider);
+        }
+
+        let elapsed = start.elapsed();
+        println!("✅ 100-iteration stress test passed in {:?}", elapsed);
     }
 }

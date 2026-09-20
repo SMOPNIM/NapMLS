@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <Content Include="..\..\native\napmls-ffi\target\release\napmls_ffi.dll" CopyToOutputDirectory="PreserveNewest" Link="napmls_ffi.dll" />
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

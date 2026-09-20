@@ -14,6 +14,8 @@ public partial class TrustManagerViewModel : ViewModelBase
     private readonly SqliteStorage _storage;
     private readonly string _mySafetyCode;
     private readonly byte[] _myFingerprint;
+    private readonly MlsTransportBridge? _bridge;
+    private readonly MlsService? _mls;
 
     public NavigationService Navigation { get; set; } = null!;
 
@@ -37,10 +39,13 @@ public partial class TrustManagerViewModel : ViewModelBase
     // -- Peer list --
     public ObservableCollection<PeerViewModel> Peers { get; } = [];
 
-    public TrustManagerViewModel(SqliteStorage storage, byte[] myFingerprint)
+    public TrustManagerViewModel(SqliteStorage storage, byte[] myFingerprint,
+        MlsTransportBridge? bridge = null, MlsService? mls = null)
     {
         _storage = storage;
         _myFingerprint = myFingerprint;
+        _bridge = bridge;
+        _mls = mls;
         _mySafetyCode = SafetyCodeFormatter.Format(myFingerprint);
         SafetyCode = _mySafetyCode;
 
@@ -106,6 +111,12 @@ public partial class TrustManagerViewModel : ViewModelBase
             CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
         });
 
+        // Auto-send our KP to the new peer so they can add us to groups
+        if (_bridge == null || !_bridge.HasSentKeyPackageTo(NewQqNumber))
+        {
+            _ = SendMyKeyPackageToAsync(NewQqNumber);
+        }
+
         NewQqNumber = null;
         NewSafetyCode = null;
         NewNickname = null;
@@ -115,31 +126,50 @@ public partial class TrustManagerViewModel : ViewModelBase
     [RelayCommand]
     private void RemovePeer(string qqNumber)
     {
+        _bridge?.RemoveFromKeyPackageTracking(qqNumber);
         _storage.DeletePeer(qqNumber);
         LoadPeers();
     }
 
     /// <summary>
-    /// Mock: receive a KeyPackage from a peer, verify fingerprint matches safety code.
-    /// In P1d-5 this becomes real NapCat message handling.
+    /// Generate and send our KeyPackage to a peer via NapCat private message.
+    /// The peer's bridge will auto-reply with its own KP (see MlsTransportBridge Fix 1).
     /// </summary>
     [RelayCommand]
-    private void MockReceiveKeyPackage(string qqNumber)
+    private async Task RequestKeyPackageAsync(string qqNumber)
     {
         var peer = _storage.GetPeer(qqNumber);
         if (peer == null) return;
 
-        // P1d-3 mock: generate a fake KeyPackage
-        // In real flow, this comes from the network
-        var fakeKp = new byte[256];
-        Random.Shared.NextBytes(fakeKp);
+        await SendMyKeyPackageToAsync(qqNumber);
+    }
 
-        // Compute fingerprint from fake KP (mock — in real flow, extract from KP)
-        // For mock, we just mark as verified if safety code format is valid
-        _storage.SetKeyPackage(qqNumber, fakeKp);
-        _storage.SetVerified(qqNumber, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+    private async Task SendMyKeyPackageToAsync(string qqNumber)
+    {
+        if (_mls == null || _bridge == null)
+        {
+            AddErrorMessage = "MLS 未初始化，无法发送密钥包";
+            return;
+        }
 
-        LoadPeers();
+        try
+        {
+            AddErrorMessage = $"正在向 {qqNumber} 发送密钥包...";
+            var kp = _mls.GenerateKeyPackage();
+            if (kp == null)
+            {
+                AddErrorMessage = "生成密钥包失败";
+                return;
+            }
+
+            await _bridge.SendKeyPackageAsync(long.Parse(qqNumber), kp);
+            AddErrorMessage = $"已发送密钥包给 {qqNumber}，等待对方回应";
+            LoadPeers();
+        }
+        catch (Exception ex)
+        {
+            AddErrorMessage = $"发送密钥包失败: {ex.Message}";
+        }
     }
 
     [RelayCommand]

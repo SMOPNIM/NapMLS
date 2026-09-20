@@ -177,6 +177,9 @@ public partial class CreateSubgroupViewModel : ViewModelBase
                 DisplayName = GroupName,
             });
 
+            // Register group in bridge hashMap so incoming messages can be routed
+            _bridge?.RegisterGroup(groupId, SelectedQqGroup.QqGroupId);
+
             // Add members with collected KeyPackages
             var kps = _collectedKeyPackages.Values.ToArray();
             if (kps.Length > 0)
@@ -250,11 +253,18 @@ public partial class CreateSubgroupViewModel : ViewModelBase
                 {
                     _collectedKeyPackages[peer.QqNumber] = peerData.KeyPackage;
                     peer.KeyPackageReady = true;
+                    ExchangeStatus = $"{peer.Nickname} 密钥包已就绪";
                     break;
                 }
             }
 
             ExchangeProgress++;
+
+            if (!peer.KeyPackageReady)
+            {
+                ExchangeStatus = $"{peer.Nickname} 密钥包超时（15秒），该成员将被跳过";
+                await Task.Delay(1000); // Show timeout message briefly
+            }
         }
 
         var readyCount = _collectedKeyPackages.Count;

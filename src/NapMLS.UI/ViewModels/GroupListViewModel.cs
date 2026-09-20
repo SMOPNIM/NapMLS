@@ -53,6 +53,10 @@ public partial class GroupListViewModel : ViewModelBase
                     ConnectionStatus = connected ? "NapCat 已连接" : "NapCat 未连接";
                 });
             };
+            _bridge.OnGroupJoined += _ =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => LoadGroups());
+            };
         }
 
         LoadGroups();
@@ -128,7 +132,7 @@ public partial class GroupListViewModel : ViewModelBase
     [RelayCommand]
     private void OpenTrustManager()
     {
-        var vm = new TrustManagerViewModel(_storage, _fingerprint) { Navigation = Navigation };
+        var vm = new TrustManagerViewModel(_storage, _fingerprint, _bridge, _mls) { Navigation = Navigation };
         Navigation.NavigateTo(vm);
     }
 

@@ -113,7 +113,7 @@ public partial class SetupViewModel : ViewModelBase
         {
             fixed (byte* pKey = testKey)
             {
-                NapMlsNative.napmls_init(pKey, testKey.Length);
+                NapMlsNative.napmls_init(pKey, (nuint)testKey.Length);
             }
         }
         _ffiInitialized = true;
@@ -221,7 +221,7 @@ public partial class SetupViewModel : ViewModelBase
                     fixed (byte* pName = nameBytes)
                     {
                         var rc = NapMlsNative.napmls_load_identity(
-                            provider, pName, nameBytes.Length, &identity, null);
+                            provider, pName, (nuint)nameBytes.Length, &identity, null);
 
                         if (rc == NapMlsNative.NAPMLS_OK && identity != IntPtr.Zero)
                         {
@@ -232,13 +232,13 @@ public partial class SetupViewModel : ViewModelBase
 
                         // Not found — create new
                         rc = NapMlsNative.napmls_create_identity(
-                            provider, pName, nameBytes.Length, &identity, null);
+                            provider, pName, (nuint)nameBytes.Length, &identity, null);
                         if (rc != NapMlsNative.NAPMLS_OK || identity == IntPtr.Zero)
                             throw new InvalidOperationException($"Failed to create identity: rc={rc}");
 
                         // Register for future loading
                         NapMlsNative.napmls_register_identity(
-                            provider, pName, nameBytes.Length, identity, null);
+                            provider, pName, (nuint)nameBytes.Length, identity, null);
 
                         SetFingerprintFromIdentity(identity);
                     }

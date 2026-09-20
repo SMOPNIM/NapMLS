@@ -152,28 +152,62 @@ public partial class MainViewModel : ViewModelBase
 
     private async void NavigateToGroups()
     {
-        var storage = GetStorage();
-        var fp = Convert.FromHexString(_config.IdentityFingerprint!);
-        var mls = GetMls();
-
-        MlsTransportBridge? bridge = null;
-        MessageBus? bus = null;
-        NapCatServer? server = null;
-
         try
         {
-            (server, bridge, bus) = GetTransport();
-            await server.StartAsync();
+            var storage = GetStorage();
+
+            // Check if identity can actually be loaded from DB
+            var mls = GetMls();
+            if (mls == null || !mls.HasIdentity)
+            {
+                Console.WriteLine($"[MainViewModel] Identity not found in DB, clearing config and redirecting to Setup");
+                _mls?.Dispose();
+                _mls = null;
+                _config.IdentityUsername = null;
+                _config.IdentityFingerprint = null;
+                _config.IdentitySafetyCode = null;
+                var configPath = Path.Combine(_dataDir, "config.json");
+                AppConfigService.Save(_config, configPath);
+                var setup = new SetupViewModel(_config, configPath, OnSetupCompleted) { Navigation = Navigation };
+                Navigation.NavigateTo(setup);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_config.IdentityFingerprint))
+            {
+                Console.WriteLine($"[MainViewModel] IdentityFingerprint is empty, redirecting to Setup");
+                Navigation.NavigateTo(new SetupViewModel(_config, Path.Combine(_dataDir, "config.json"), OnSetupCompleted) { Navigation = Navigation });
+                return;
+            }
+
+            var fp = Convert.FromHexString(_config.IdentityFingerprint);
+
+            MlsTransportBridge? bridge = null;
+            MessageBus? bus = null;
+            NapCatServer? server = null;
+
+            try
+            {
+                (server, bridge, bus) = GetTransport();
+                await server.StartAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MainViewModel] Failed to start NapCat server: {ex.Message}");
+            }
+
+            var vm = new GroupListViewModel(_config, storage, fp, mls, bridge, bus)
+            {
+                Navigation = Navigation,
+            };
+            Navigation.NavigateTo(vm);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[MainViewModel] Failed to start NapCat server: {ex.Message}");
+            Console.WriteLine($"[MainViewModel] NavigateToGroups failed: {ex.Message}");
+            File.AppendAllText(
+                Path.Combine(_dataDir, "crash.log"),
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] NavigateToGroups: {ex}\n");
         }
-
-        var vm = new GroupListViewModel(_config, storage, fp, mls, bridge, bus)
-        {
-            Navigation = Navigation,
-        };
-        Navigation.NavigateTo(vm);
     }
 }

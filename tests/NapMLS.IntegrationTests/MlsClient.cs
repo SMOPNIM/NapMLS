@@ -40,7 +40,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pName = nameBytes)
         {
             var rc = NativeMethods.napmls_create_identity(
-                provider, pName, nameBytes.Length, &identity, null);
+                provider, pName, (nuint)nameBytes.Length, &identity, null);
             if (rc != NativeMethods.NAPMLS_OK || identity == IntPtr.Zero)
                 throw new InvalidOperationException($"Failed to create identity for {name}");
         }
@@ -65,7 +65,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pName = nameBytes)
         {
             var rc = NativeMethods.napmls_create_identity(
-                provider, pName, nameBytes.Length, &identity, null);
+                provider, pName, (nuint)nameBytes.Length, &identity, null);
             if (rc != NativeMethods.NAPMLS_OK || identity == IntPtr.Zero)
                 throw new InvalidOperationException($"Failed to create identity for {name}");
         }
@@ -91,7 +91,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pName = nameBytes)
         {
             var rc = NativeMethods.napmls_load_identity(
-                provider, pName, nameBytes.Length, &identity, null);
+                provider, pName, (nuint)nameBytes.Length, &identity, null);
             if (rc != NativeMethods.NAPMLS_OK || identity == IntPtr.Zero)
             {
                 NativeMethods.napmls_provider_free(provider);
@@ -109,7 +109,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pName = nameBytes)
         {
             var rc = NativeMethods.napmls_register_identity(
-                _provider, pName, nameBytes.Length, _identity, null);
+                _provider, pName, (nuint)nameBytes.Length, _identity, null);
             if (rc != NativeMethods.NAPMLS_OK)
                 throw new InvalidOperationException($"Failed to register identity: {rc}");
         }
@@ -147,7 +147,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pName = nameBytes)
         {
             var rc = NativeMethods.napmls_create_group(
-                _provider, _identity, pName, nameBytes.Length, &group, null);
+                _provider, _identity, pName, (nuint)nameBytes.Length, &group, null);
             if (rc != NativeMethods.NAPMLS_OK || group == IntPtr.Zero)
                 throw new InvalidOperationException($"Failed to create group: {rc}");
         }
@@ -164,7 +164,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pId = groupId)
         {
             var rc = NativeMethods.napmls_load_group(
-                _provider, pId, groupId.Length, &group, null);
+                _provider, pId, (nuint)groupId.Length, &group, null);
             if (rc != NativeMethods.NAPMLS_OK || group == IntPtr.Zero)
                 return null;
         }
@@ -209,7 +209,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pKp = allData)
         {
             var rc = NativeMethods.napmls_add_members(
-                _provider, group, _identity, pKp, allData.Length, &welcome, null);
+                _provider, group, _identity, pKp, (nuint)allData.Length, &welcome, null);
             if (rc != NativeMethods.NAPMLS_OK)
                 throw new InvalidOperationException($"Failed to add members: {rc}");
         }
@@ -226,7 +226,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pWelcome = welcomeData)
         {
             var rc = NativeMethods.napmls_process_welcome(
-                _provider, pWelcome, welcomeData.Length, &group, null);
+                _provider, pWelcome, (nuint)welcomeData.Length, &group, null);
             if (rc != NativeMethods.NAPMLS_OK || group == IntPtr.Zero)
                 throw new InvalidOperationException($"Failed to process welcome: {rc}");
         }
@@ -247,7 +247,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pMsg = msgBytes)
         {
             var rc = NativeMethods.napmls_encrypt(
-                _provider, group, _identity, pMsg, msgBytes.Length, &cipher, null);
+                _provider, group, _identity, pMsg, (nuint)msgBytes.Length, &cipher, null);
             if (rc != NativeMethods.NAPMLS_OK)
                 throw new InvalidOperationException($"Failed to encrypt: {rc}");
         }
@@ -267,7 +267,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pCipher = ciphertext)
         {
             var rc = NativeMethods.napmls_decrypt(
-                _provider, group, pCipher, ciphertext.Length, &plain, null);
+                _provider, group, pCipher, (nuint)ciphertext.Length, &plain, null);
             if (rc != NativeMethods.NAPMLS_OK)
                 return null; // Decryption failed (e.g. removed member)
         }
@@ -326,7 +326,7 @@ public sealed class MlsClient : IAsyncDisposable
         fixed (byte* pName = nameBytes)
         {
             var rc = NativeMethods.napmls_find_member_by_name(
-                group, pName, nameBytes.Length, &leafIndex, null);
+                group, pName, (nuint)nameBytes.Length, &leafIndex, null);
             if (rc != NativeMethods.NAPMLS_OK)
                 return null;
         }

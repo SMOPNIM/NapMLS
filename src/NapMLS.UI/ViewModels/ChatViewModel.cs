@@ -128,7 +128,7 @@ public partial class ChatViewModel : ViewModelBase
             // FFI-only mode (testing without NapCat)
             try
             {
-                var cipher = _mls.Encrypt(GroupId, InputText);
+                var cipher = await Task.Run(() => _mls.Encrypt(GroupId, InputText));
                 if (cipher != null)
                 {
                     AddMessage("我", InputText, isOwn: true, encrypted: true, status: "已加密发送");

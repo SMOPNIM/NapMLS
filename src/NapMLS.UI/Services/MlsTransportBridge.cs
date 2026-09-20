@@ -69,31 +69,39 @@ public sealed class MlsTransportBridge : IDisposable
 
     private void OnNapCatEvent(string json)
     {
-        try
+        // Dispatch to thread pool so WS receive loop is never blocked by Decrypt/SemaphoreSlim
+        _ = Task.Run(async () =>
         {
-            var evt = OneBotParser.ParseEvent(json);
-            if (evt == null || evt.PostType != "message")
-                return;
-
-            var segments = OneBotParser.ParseMessage(evt.Message);
-            var text = OneBotParser.ExtractText(segments);
-
-            if (!OneBotParser.IsMlsMessage(text))
-                return;
-
-            if (evt.MessageType == "group")
+            try
             {
-                HandleInboundGroupMessage(text, evt);
+                var evt = OneBotParser.ParseEvent(json);
+                if (evt == null || evt.PostType != "message")
+                    return;
+
+                // Skip own messages (NapCat reportSelfMessage:false may not be reliable)
+                if (evt.UserId == evt.SelfId)
+                    return;
+
+                var segments = OneBotParser.ParseMessage(evt.Message);
+                var text = OneBotParser.ExtractText(segments);
+
+                if (!OneBotParser.IsMlsMessage(text))
+                    return;
+
+                if (evt.MessageType == "group")
+                {
+                    HandleInboundGroupMessage(text, evt);
+                }
+                else if (evt.MessageType == "private")
+                {
+                    await HandleInboundPrivateMessageAsync(text, evt);
+                }
             }
-            else if (evt.MessageType == "private")
+            catch (Exception ex)
             {
-                HandleInboundPrivateMessage(text, evt);
+                Console.Error.WriteLine($"[Bridge] Inbound error: {ex.Message}");
             }
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[Bridge] Inbound error: {ex.Message}");
-        }
+        });
     }
 
     private void HandleInboundGroupMessage(string text, OneBotEvent evt)
@@ -135,7 +143,11 @@ public sealed class MlsTransportBridge : IDisposable
         });
     }
 
-    private void HandleInboundPrivateMessage(string text, OneBotEvent evt)
+    // Thread-safe: tracks peers we already sent KP to (prevents infinite ping-pong).
+    // Value unused — presence in dictionary is the signal.
+    private readonly ConcurrentDictionary<string, byte> _kpSentTo = new();
+
+    private async Task HandleInboundPrivateMessageAsync(string text, OneBotEvent evt)
     {
         // [MLS:WELCOME:<qqGroupId>]base64 — auto-join group with QQ binding
         if (text.StartsWith("[MLS:WELCOME:", StringComparison.Ordinal))
@@ -158,7 +170,7 @@ public sealed class MlsTransportBridge : IDisposable
                 var groupIdHex = _mls.JoinGroup(welcomeBytes);
                 if (groupIdHex != null)
                 {
-                    Console.WriteLine($"[Bridge] Joined group {groupIdHex}");
+                    Console.WriteLine($"[Bridge] Joined group {groupIdHex}, qqGroupId={qqGroupId}");
 
                     if (qqGroupId > 0)
                     {
@@ -169,6 +181,10 @@ public sealed class MlsTransportBridge : IDisposable
                             DisplayName = $"QQ {qqGroupId} 加密子群",
                         });
                         Console.WriteLine($"[Bridge] Bound group {groupIdHex} to QQ group {qqGroupId}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[Bridge] WARNING: qqGroupId=0, group {groupIdHex} has no QQ binding");
                     }
 
                     RebuildHashMap();
@@ -186,7 +202,7 @@ public sealed class MlsTransportBridge : IDisposable
             return;
         }
 
-        // [MLS:KP:<base64(KP)>] — KeyPackage exchange: save to trusted_peers
+        // [MLS:KP:<base64(KP)>] — KeyPackage exchange: save to trusted_peers, then reply with own KP
         if (text.StartsWith("[MLS:KP:", StringComparison.Ordinal))
         {
             Console.WriteLine($"[Bridge] KeyPackage received from {evt.UserId}");
@@ -201,6 +217,23 @@ public sealed class MlsTransportBridge : IDisposable
                 var senderQq = evt.UserId.ToString();
                 _storage.SetKeyPackage(senderQq, kpBytes);
                 Console.WriteLine($"[Bridge] Saved KeyPackage for {senderQq} ({kpBytes.Length} bytes)");
+
+                // Reply with own KP only if we haven't already sent one to this peer.
+                // Prevents infinite ping-pong: both sides auto-reply to each other's KP.
+                if (_kpSentTo.ContainsKey(senderQq))
+                {
+                    Console.WriteLine($"[Bridge] Already sent KP to {senderQq}, no reply needed");
+                }
+                else
+                {
+                    var myKp = _mls.GenerateKeyPackage();
+                    if (myKp != null)
+                    {
+                        _ = SendKeyPackageAsync(evt.UserId, myKp);
+                        _kpSentTo.TryAdd(senderQq, 0);
+                        Console.WriteLine($"[Bridge] Replied with own KeyPackage to {senderQq}");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -222,17 +255,44 @@ public sealed class MlsTransportBridge : IDisposable
             return false;
         }
 
-        var ciphertext = _mls.Encrypt(groupIdHex, plaintext);
-        if (ciphertext == null)
+        byte[]? ciphertext;
+        string groupHash;
+        long epoch;
+        long sender;
+
+        try
         {
-            Console.WriteLine("[Bridge] Encrypt failed");
+            // Run FFI encrypt on thread pool to avoid blocking the UI thread
+            var encryptResult = await Task.Run(() =>
+            {
+                var cipher = _mls.Encrypt(groupIdHex, plaintext);
+                var gHash = MessageChunker.ComputeGroupHash(Convert.FromHexString(groupIdHex));
+                var ep = _mls.GetEpoch(groupIdHex);
+                var snd = long.TryParse(_mls.GetUsername(), out var q) ? q : 0;
+                return (cipher, gHash, ep, snd);
+            }, ct);
+
+            ciphertext = encryptResult.cipher;
+            groupHash = encryptResult.gHash;
+            epoch = encryptResult.ep;
+            sender = encryptResult.snd;
+        }
+        catch (ObjectDisposedException)
+        {
+            Console.WriteLine("[Bridge] MLS service disposed during encrypt");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Bridge] Encrypt error: {ex.Message}");
             return false;
         }
 
-        var groupIdBytes = Convert.FromHexString(groupIdHex);
-        var groupHash = MessageChunker.ComputeGroupHash(groupIdBytes);
-        var epoch = _mls.GetEpoch(groupIdHex);
-        var sender = long.TryParse(_mls.GetUsername(), out var qq) ? qq : 0;
+        if (ciphertext == null)
+        {
+            Console.WriteLine("[Bridge] Encrypt failed (null ciphertext)");
+            return false;
+        }
 
         var formatted = MessageChunker.FormatMessage(
             MlsMessageType.MSG, groupHash, epoch, sender, seq: 1, total: 1, ciphertext);
@@ -264,6 +324,7 @@ public sealed class MlsTransportBridge : IDisposable
     public async Task<bool> SendKeyPackageAsync(long userId, byte[] keyPackageBytes, CancellationToken ct = default)
     {
         var payload = $"[MLS:KP:]{Convert.ToBase64String(keyPackageBytes)}";
+        _kpSentTo.TryAdd(userId.ToString(), 0);
         return await _server.SendPrivateMessageAsync(userId, payload, ct);
     }
 
@@ -272,4 +333,10 @@ public sealed class MlsTransportBridge : IDisposable
         _server.OnEventReceived -= OnNapCatEvent;
         _chunker.Dispose();
     }
+
+    /// <summary>Check if we already sent KP to this peer (prevents duplicate sends).</summary>
+    public bool HasSentKeyPackageTo(string qqNumber) => _kpSentTo.ContainsKey(qqNumber);
+
+    /// <summary>Remove a peer from KP tracking (e.g. when deleting trusted peer).</summary>
+    public void RemoveFromKeyPackageTracking(string qqNumber) => _kpSentTo.TryRemove(qqNumber, out _);
 }
