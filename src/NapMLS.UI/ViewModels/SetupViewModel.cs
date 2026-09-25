@@ -210,7 +210,8 @@ public partial class SetupViewModel : ViewModelBase
 
         try
         {
-            await Task.Run(() =>
+            // FFI work runs on thread pool; ObservableProperty writes stay on UI thread below.
+            var fpBytes = await Task.Run(() =>
             {
                 var provider = GetOrCreateProvider();
                 var nameBytes = Encoding.UTF8.GetBytes(Username);
@@ -227,8 +228,7 @@ public partial class SetupViewModel : ViewModelBase
                         if (rc == NapMlsNative.NAPMLS_OK && identity != IntPtr.Zero)
                         {
                             // Loaded existing identity
-                            SetFingerprintFromIdentity(identity);
-                            return;
+                            return GetFingerprintBytes(identity);
                         }
 
                         // Not found — create new
@@ -241,10 +241,14 @@ public partial class SetupViewModel : ViewModelBase
                         NapMlsNative.napmls_register_identity(
                             provider, pName, (nuint)nameBytes.Length, identity, null);
 
-                        SetFingerprintFromIdentity(identity);
+                        return GetFingerprintBytes(identity);
                     }
                 }
             });
+
+            // UI-thread assignments (binding-safe): Task.Run returned raw bytes above.
+            FingerprintHex = Convert.ToHexString(fpBytes[..8]).ToUpperInvariant();
+            SafetyCode = SafetyCodeFormatter.Format(fpBytes[..8]);
 
             IsIdentityGenerated = true;
 
@@ -263,7 +267,8 @@ public partial class SetupViewModel : ViewModelBase
         }
     }
 
-    private unsafe void SetFingerprintFromIdentity(IntPtr identity)
+    /// <summary>Pure FFI read — returns raw bytes, never touches bound properties.</summary>
+    private static unsafe byte[] GetFingerprintBytes(IntPtr identity)
     {
         NapMlsNative.NapMlsBytes fp = default;
         var rc = NapMlsNative.napmls_identity_fingerprint(identity, &fp, null);
@@ -272,9 +277,7 @@ public partial class SetupViewModel : ViewModelBase
 
         var fpBytes = NapMlsNative.ReadBytes(fp);
         NapMlsNative.napmls_free_bytes(fp);
-
-        FingerprintHex = Convert.ToHexString(fpBytes[..8]).ToUpperInvariant();
-        SafetyCode = SafetyCodeFormatter.Format(fpBytes[..8]);
+        return fpBytes;
     }
 
     [RelayCommand]

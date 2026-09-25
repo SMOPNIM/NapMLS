@@ -14,15 +14,24 @@ public partial class SetupView : UserControl
 
     private async void CopyButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is SetupViewModel vm && vm.SafetyCode != null)
+        // async void is correct for event handlers, but must never throw:
+        // unhandled exceptions here crash the process.
+        try
         {
-            var topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel?.Clipboard != null)
+            if (DataContext is SetupViewModel vm && vm.SafetyCode != null)
             {
-                var data = new DataTransfer();
-                data.Add(DataTransferItem.CreateText(vm.SafetyCode));
-                await topLevel.Clipboard.SetDataAsync(data);
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel?.Clipboard != null)
+                {
+                    var data = new DataTransfer();
+                    data.Add(DataTransferItem.CreateText(vm.SafetyCode));
+                    await topLevel.Clipboard.SetDataAsync(data);
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SetupView] Copy to clipboard failed: {ex.Message}");
         }
     }
 }

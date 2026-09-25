@@ -112,7 +112,7 @@ public partial class CreateSubgroupViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void NextStep()
+    private async Task NextStep()
     {
         if (CurrentStep == 1 && SelectedQqGroup == null) return;
 
@@ -129,7 +129,7 @@ public partial class CreateSubgroupViewModel : ViewModelBase
 
         if (CurrentStep == 3)
         {
-            StartKeyPackageExchange();
+            await StartKeyPackageExchangeAsync();
             return;
         }
 
@@ -209,15 +209,17 @@ public partial class CreateSubgroupViewModel : ViewModelBase
         }
     }
 
-    private async void StartKeyPackageExchange()
+    private async Task StartKeyPackageExchangeAsync()
     {
         IsExchangeRunning = true;
-        _collectedKeyPackages.Clear();
-        ExchangeTotal = SelectedMembers.Count;
-        ExchangeProgress = 0;
-
-        foreach (var peer in SelectedMembers)
+        try
         {
+            _collectedKeyPackages.Clear();
+            ExchangeTotal = SelectedMembers.Count;
+            ExchangeProgress = 0;
+
+            foreach (var peer in SelectedMembers)
+            {
             ExchangeStatus = $"正在与 {peer.Nickname} ({peer.QqNumber}) 交换密钥包...";
 
             // Check if we already have this peer's KP from a previous exchange
@@ -272,8 +274,17 @@ public partial class CreateSubgroupViewModel : ViewModelBase
         ExchangeStatus = readyCount == SelectedMembers.Count
             ? $"密钥交换完成，共 {readyCount} 位成员"
             : $"密钥交换完成，{readyCount}/{SelectedMembers.Count} 位成员就绪（未就绪成员将被跳过）";
-        IsExchangeRunning = false;
         CurrentStep = 4;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"密钥交换失败: {ex.Message}";
+            Console.WriteLine($"[Wizard] KeyPackage exchange failed: {ex}");
+        }
+        finally
+        {
+            IsExchangeRunning = false;
+        }
     }
 }
 
