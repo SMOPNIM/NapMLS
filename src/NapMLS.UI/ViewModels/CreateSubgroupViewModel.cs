@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NapMLS.Core;
+using NapMLS.Core.Services;
 using NapMLS.UI.Services;
 
 namespace NapMLS.UI.ViewModels;

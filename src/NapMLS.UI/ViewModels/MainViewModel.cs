@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using NapMLS.Core;
 using NapMLS.NapCat;
 using NapMLS.UI.Models;
+using NapMLS.Core.Services;
 using NapMLS.UI.Services;
 
 namespace NapMLS.UI.ViewModels;

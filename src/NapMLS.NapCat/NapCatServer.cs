@@ -366,6 +366,17 @@ public sealed class NapCatServer : IAsyncDisposable
             {
                 var root = doc.RootElement;
 
+                // Heartbeat meta events refresh the connection watchdog internally,
+                // so hosts (UI/CLI/others) don't each need their own RecordHeartbeat hack.
+                // RecordHeartbeat is idempotent — external subscribers may still call it.
+                if (root.TryGetProperty("post_type", out var postProp) &&
+                    postProp.GetString() == "meta_event" &&
+                    root.TryGetProperty("meta_event_type", out var metaProp) &&
+                    metaProp.GetString() == "heartbeat")
+                {
+                    RecordHeartbeat();
+                }
+
                 // Check if this is an API response (has both "echo" and "retcode")
                 if (root.TryGetProperty("echo", out var echoProp) &&
                     root.TryGetProperty("retcode", out var retcodeProp))

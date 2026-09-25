@@ -1,4 +1,4 @@
-namespace NapMLS.UI.Services;
+namespace NapMLS.Core.Services;
 
 /// <summary>
 /// Formats raw fingerprint bytes into NAPMLS-XXXX-XXXX-XXXX-XXXX safety code.

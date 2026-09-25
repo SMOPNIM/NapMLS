@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using NapMLS.Core;
 using NapMLS.NapCat;
 
-namespace NapMLS.UI.Services;
+namespace NapMLS.Core.Services;
 
 /// <summary>
 /// Bridges NapCatServer (QQ transport) ↔ MlsService (MLS crypto) ↔ MessageBus (UI events).
@@ -132,7 +132,7 @@ public sealed class MlsTransportBridge : IDisposable
         var senderInfo = OneBotParser.ParseSender(evt.Sender);
         var senderName = senderInfo?.Nickname ?? evt.UserId.ToString();
 
-        Console.WriteLine($"[Bridge] Decrypted from {senderName}: {plaintext[..Math.Min(50, plaintext.Length)]}");
+        Console.WriteLine($"[Bridge] Decrypted hash={groupHash} epoch={result.Epoch} from {senderName}: {plaintext[..Math.Min(50, plaintext.Length)]}");
 
         _bus.Publish(new MessageReceivedEvent
         {

@@ -1,13 +1,13 @@
 using System.Runtime.InteropServices;
 
-namespace NapMLS.UI.Services;
+namespace NapMLS.Core.Services;
 
 /// <summary>
 /// P/Invoke bindings for napmls_ffi.dll used by the UI.
 /// Signatures MUST match native/napmls-ffi/src/ffi.rs exactly.
 /// Length params use nuint to match Rust's usize (8 bytes on x64).
 /// </summary>
-internal static partial class NapMlsNative
+public static partial class NapMlsNative
 {
     private const string LibName = "napmls_ffi";
 

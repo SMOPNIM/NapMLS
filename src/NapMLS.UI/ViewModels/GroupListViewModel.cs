@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NapMLS.Core;
 using NapMLS.UI.Models;
+using NapMLS.Core.Services;
 using NapMLS.UI.Services;
 
 namespace NapMLS.UI.ViewModels;

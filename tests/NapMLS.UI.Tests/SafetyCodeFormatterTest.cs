@@ -1,4 +1,4 @@
-using NapMLS.UI.Services;
+using NapMLS.Core.Services;
 using Xunit;
 
 namespace NapMLS.UI.Tests;

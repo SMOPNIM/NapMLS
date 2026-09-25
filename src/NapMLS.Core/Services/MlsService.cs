@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
-namespace NapMLS.UI.Services;
+namespace NapMLS.Core.Services;
 
 /// <summary>
 /// Singleton MLS service — owns FFI provider + identity for the app lifetime.
