@@ -23,8 +23,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\native\napmls-ffi\target\release\napmls_ffi.dll" CopyToOutputDirectory="PreserveNewest" Link="napmls_ffi.dll" />
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- napmls_ffi.dll 由仓库根 Directory.Build.props 统一声明，勿在此重复 -->
 
 </Project>

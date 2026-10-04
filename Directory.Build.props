@@ -1,0 +1,37 @@
+<Project>
+
+  <!--
+    仓库级共享构建配置（MSBuild 会自动向上查找并导入，本文件对所有项目生效）。
+
+    1) 原生 FFI 产物 napmls_ffi.dll 只在这里声明一次。
+       以前 4 个 csproj 各写一遍 <Content Include="..\..\native\...">，Debug 与 Release
+       各留一份，publish 再一份，同一个 DLL 在磁盘上出现 14 份。
+       现在由本文件统一提供，并带 Exists 条件：Rust 侧尚未执行 cargo 构建时，
+       不依赖 DLL 的项目（例如 NapMLS.CoreTest）仍可独立构建与测试。
+  -->
+  <PropertyGroup>
+    <NapMlsFfiDll>$(MSBuildThisFileDirectory)native\napmls-ffi\target\release\napmls_ffi.dll</NapMlsFfiDll>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(NapMlsFfiDll)')">
+    <Content Include="$(NapMlsFfiDll)" Link="napmls_ffi.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    2) 丢掉 NuGet 包自带的原生调试符号（libSkiaSharp.pdb 80 MB、libHarfBuzzSharp.pdb 20 MB）。
+       它们是 Avalonia 转 SkiaSharp 包里的 native 资产，DebugType / DebugSymbols 管不到
+       （实测：关闭这两个属性只能把 139.6 MB 降到 138.1 MB），所以只能在拷贝完成后删除。
+       需要保留时传 -p:NapMlsKeepNativePackagePdbs=true。
+  -->
+  <Target Name="NapMlsDropNativePackagePdbs"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(NapMlsKeepNativePackagePdbs)' != 'true'">
+    <ItemGroup>
+      <_NapMlsPdbToDrop Include="$(OutDir)libSkiaSharp.pdb" />
+      <_NapMlsPdbToDrop Include="$(OutDir)libHarfBuzzSharp.pdb" />
+      <_NapMlsPdbToDrop Include="$(OutDir)runtimes\**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(_NapMlsPdbToDrop)" ContinueOnError="true" />
+  </Target>
+
+</Project>

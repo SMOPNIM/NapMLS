@@ -24,3 +24,15 @@ hex = "0.4"
 
 [lib]
 crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+# 单个 codegen 单元 + 全量 LTO：把 openmls / rusqlite(bundled SQLite) 的跨 crate 内联做透，
+# 缩小 cdylib 体积（默认配置下 DLL 为 6.18 MB）。
+lto = "fat"
+codegen-units = 1
+# 剥离符号表：cdylib 不需要保留符号用于事后调试。
+strip = "symbols"
+# 必须保持 unwind！ffi.rs 全程依赖 catch_unwind 阻止 panic 跨越 C 边界；
+# 改成 "abort" 会让所有 catch_unwind 失效，panic 直接终止宿主进程。
+panic = "unwind"

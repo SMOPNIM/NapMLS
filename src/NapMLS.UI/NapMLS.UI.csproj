@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -7,6 +7,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!--
+      指定 RID：Avalonia → SkiaSharp 提供 28 个 RID 的原生库，不指定 RID 时 NuGet 会把
+      runtimes/ 整棵树复制到输出（实测单目录 602 MB）。指定后只留本机那一份（约 39 MB）。
+    -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,8 +35,5 @@
     <ProjectReference Include="..\NapMLS.Core\NapMLS.Core.csproj" />
     <ProjectReference Include="..\NapMLS.NapCat\NapMLS.NapCat.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <Content Include="..\..\native\napmls-ffi\target\release\napmls_ffi.dll" CopyToOutputDirectory="PreserveNewest" Link="napmls_ffi.dll" />
-  </ItemGroup>
+  <!-- napmls_ffi.dll 由仓库根 Directory.Build.props 统一声明，勿在此重复 -->
 </Project>

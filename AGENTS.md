@@ -29,12 +29,13 @@ dotnet build NapMLS.slnx
 # Run tests (each project independently)
 dotnet test tests/NapMLS.CoreTest/        # 38 unit tests — no DLL dependency
 dotnet test tests/NapMLS.UI.Tests/        # 16 unit tests — no DLL dependency
-dotnet test tests/NapMLS.IntegrationTests/ # 28 tests — requires napmls_ffi.dll (built by cargo)
+dotnet test tests/NapMLS.IntegrationTests/ # 32 tests — requires napmls_ffi.dll (built by cargo)
 ```
 
 ## Key gotchas
 
-- **FFI DLL must exist before integration tests**: `NapMLS.IntegrationTests.csproj` copies `native/napmls-ffi/target/release/napmls_ffi.dll` via `<Content>`. If the DLL is missing, the test project won't build.
+- **FFI DLL is declared once, repo-wide**: `Directory.Build.props` (repo root) adds `native/napmls-ffi/target/release/napmls_ffi.dll` as a `<Content>` item for every project, guarded by `Condition="Exists(...)"`. Build it first with `cargo build --release`; if it is missing the build still succeeds but the DLL is simply not copied (so `NapMLS.CoreTest` stays buildable without Rust), and P/Invoke then fails at runtime with `DllNotFoundException`.
+- **Keep build output small**: `NapMLS.UI` / `NapMLS.UI.Tests` set `<RuntimeIdentifier>win-x64</RuntimeIdentifier>` — without a RID, NuGet copies SkiaSharp native assets for all 28 RIDs (~600 MB per output dir). `Directory.Build.props` also deletes packaged native `.pdb` files (~100 MB: `libSkiaSharp.pdb` 80 MB) after copy; pass `-p:NapMlsKeepNativePackagePdbs=true` to keep them. `[profile.release]` in `Cargo.toml` uses `lto = "fat"` + `strip = "symbols"`; **never set `panic = "abort"`** there — `catch_unwind` is what stops panics from crossing the FFI boundary.
 - **FFITest is NOT a test project**: It's an `Exe` (console app), not xunit. Run it manually if needed.
 - **`napmls_init` is OnceLock**: the 32-byte encryption key can only be set once per process. Tests call it with `[0xAB; 32]`. Production needs Argon2id derivation (not yet wired).
 - **Avalonia 12.1 clipboard**: `IClipboard.SetTextAsync` doesn't exist directly. Use `SetDataAsync(DataTransfer)` with `DataTransferItem.CreateText()` instead.
