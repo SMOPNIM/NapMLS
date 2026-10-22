@@ -92,8 +92,10 @@ public partial class TrustManagerViewModel : ViewModelBase
             return;
         }
 
-        // Check if already exists
-        if (_storage.GetPeer(NewQqNumber) != null)
+        // Check if already exists (a pending row from an early KP still allows
+        // completing the add — upsert will fill in fingerprint/safety_code)
+        var existing = _storage.GetPeer(NewQqNumber);
+        if (existing != null && !string.IsNullOrEmpty(existing.SafetyCode))
         {
             AddErrorMessage = $"QQ 号 {NewQqNumber} 已在信任列表中";
             return;
@@ -103,12 +105,14 @@ public partial class TrustManagerViewModel : ViewModelBase
         var cleanCode = NewSafetyCode.Replace("NAPMLS-", "").Replace("-", "");
         var fingerprint = Convert.FromHexString(cleanCode);
 
+        // Entering a valid OOB-verified safety code IS the verification act (P2).
         _storage.UpsertPeer(new TrustedPeer
         {
             QqNumber = NewQqNumber,
             Fingerprint = fingerprint,
             SafetyCode = NewSafetyCode.ToUpperInvariant(),
             Nickname = NewNickname,
+            VerifiedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
         });
 

@@ -197,12 +197,14 @@ async Task HandlePeer(string[] p)
                 return;
             }
             var fpBytes = Convert.FromHexString(code.Replace("NAPMLS-", "").Replace("-", ""));
+            // Entering a valid OOB-verified safety code IS the verification act (P2).
             storage.UpsertPeer(new TrustedPeer
             {
                 QqNumber = qq.ToString(),
                 SafetyCode = code.ToUpperInvariant(),
                 Fingerprint = fpBytes,
                 Nickname = nick,
+                VerifiedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             });
             PrintEvent($"[PEER] added {qq} ({nick})");

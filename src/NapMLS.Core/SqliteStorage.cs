@@ -59,11 +59,20 @@ public sealed class SqliteStorage : IDisposable
     public void UpsertPeer(TrustedPeer peer)
     {
         using var cmd = _conn.CreateCommand();
+        // ON CONFLICT preserves a previously received KeyPackage when re-adding
+        // (TrustManager creates peers without KP; wiping it would force a resend).
         cmd.CommandText = @"
-            INSERT OR REPLACE INTO trusted_peers
+            INSERT INTO trusted_peers
                 (qq_number, fingerprint, safety_code, nickname, key_package, verified_at, created_at)
             VALUES
                 (@qq, @fp, @sc, @nick, @kp, @verified, @created)
+            ON CONFLICT(qq_number) DO UPDATE SET
+                fingerprint = excluded.fingerprint,
+                safety_code = excluded.safety_code,
+                nickname = excluded.nickname,
+                verified_at = excluded.verified_at,
+                created_at = excluded.created_at,
+                key_package = COALESCE(excluded.key_package, trusted_peers.key_package)
         ";
         cmd.Parameters.AddWithValue("@qq", peer.QqNumber);
         cmd.Parameters.AddWithValue("@fp", peer.Fingerprint);
@@ -96,12 +105,26 @@ public sealed class SqliteStorage : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Store an inbound KeyPackage. Creates a pending (unverified) row if the peer
+    /// was never added in TrustManager — otherwise the KP is silently dropped and
+    /// the sender waits forever. Pending rows carry empty fingerprint/safety_code
+    /// and verified_at=NULL, so no trust is granted; TrustManager re-add fills them.
+    /// </summary>
     public void SetKeyPackage(string qqNumber, byte[] keyPackage)
     {
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "UPDATE trusted_peers SET key_package = @kp WHERE qq_number = @qq";
-        cmd.Parameters.AddWithValue("@kp", keyPackage);
+        cmd.CommandText = @"
+            INSERT INTO trusted_peers
+                (qq_number, fingerprint, safety_code, nickname, key_package, verified_at, created_at)
+            VALUES
+                (@qq, @emptyFp, '', NULL, @kp, NULL, @now)
+            ON CONFLICT(qq_number) DO UPDATE SET key_package = @kp
+        ";
         cmd.Parameters.AddWithValue("@qq", qqNumber);
+        cmd.Parameters.AddWithValue("@emptyFp", Array.Empty<byte>());
+        cmd.Parameters.AddWithValue("@kp", keyPackage);
+        cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         cmd.ExecuteNonQuery();
     }
 
